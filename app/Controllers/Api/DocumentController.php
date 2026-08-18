@@ -64,38 +64,37 @@ class DocumentController extends BaseController
 
         // 3. Ambil data dari request body
         $json = $this->request->getJSON(true);
-        $formData = $json['data'] ?? [];
+        $formData  = $json['data'] ?? [];
+        $format    = $json['format'] ?? 'docx';
+        $isPreview = $json['is_preview'] ?? false;
 
-        // Validasi field required
-        $errors = [];
-        foreach ($fields as $field) {
-            $value = $formData[$field['field_key']] ?? '';
-            if ($field['is_required'] && empty(trim($value))) {
-                $errors[$field['field_key']] = $field['field_label'] . ' wajib diisi.';
-            }
-        }
-
-        if (!empty($errors)) {
-            return $this->response->setStatusCode(422)
-                ->setJSON(['errors' => $errors]);
-        }
-
-        // 4. Generate dokumen Word
+        // Validasi field required telah dihapus sesuai permintaan user
+        // 4. Generate dokumen Word / PDF
         $templatePath = FCPATH . $template['file_path'];
         $generator = new DocxGenerator();
 
         try {
-            $outputPath = $generator->generate($templatePath, $formData);
-        } catch (\Exception $e) {
+            $outputPath = $generator->generate($templatePath, $formData, '', $format, $fields);
+        } catch (\Throwable $e) {
             return $this->response->setStatusCode(500)
-                ->setJSON(['error' => 'Gagal generate dokumen: ' . $e->getMessage()]);
+                ->setJSON(['error' => 'Gagal generate dokumen: ' . $e->getMessage() . ' di baris ' . $e->getLine() . ' file ' . $e->getFile()]);
+        }
+
+        // Jika ini hanya untuk preview, jangan simpan ke history, langsung return base64
+        if ($isPreview) {
+            $base64 = base64_encode(file_get_contents($outputPath));
+            unlink($outputPath); // Hapus file temporary
+            return $this->response->setJSON([
+                'message' => 'Preview berhasil di-generate',
+                'base64'  => $base64,
+            ]);
         }
 
         // 5. Simpan riwayat
         $relativePath = str_replace(FCPATH, '', $outputPath);
         $docId = $this->documentModel->insert([
             'template_id' => $template['id'],
-            'user_id'     => $this->request->userId,
+            'user_id'     => $this->request->{'userId'},
             'data'        => json_encode($formData),
             'file_path'   => $relativePath,
         ]);
@@ -121,11 +120,16 @@ class DocumentController extends BaseController
      */
     public function history()
     {
+        // AUTO-FIX: Perbaiki semua created_at yang NULL menjadi waktu sekarang
+        // Ini akan otomatis memperbaiki data lama (1970) saat user membuka halaman History
+        $db = \Config\Database::connect();
+        $db->query("UPDATE documents SET created_at = NOW() WHERE created_at IS NULL");
+
         $userId = null;
 
         // Kalau bukan admin, filter hanya milik user ini
-        if ($this->request->userRole !== 'admin') {
-            $userId = $this->request->userId;
+        if ($this->request->{'userRole'} !== 'admin') {
+            $userId = $this->request->{'userId'};
         }
 
         $documents = $this->documentModel->getHistory($userId);
@@ -149,7 +153,7 @@ class DocumentController extends BaseController
         }
 
         // Cek akses: user biasa hanya bisa download miliknya
-        if ($this->request->userRole !== 'admin' && $document['user_id'] != $this->request->userId) {
+        if ($this->request->{'userRole'} !== 'admin' && $document['user_id'] != $this->request->{'userId'}) {
             return $this->response->setStatusCode(403)
                 ->setJSON(['error' => 'Anda tidak punya akses ke dokumen ini.']);
         }
@@ -163,7 +167,15 @@ class DocumentController extends BaseController
 
         // Download file
         $template = $this->templateModel->find($document['template_id']);
-        $filename = ($template ? $template['name'] : 'document') . '_' . date('Ymd', strtotime($document['created_at'])) . '.docx';
+        
+        // Custom File Naming: [Nama Template] - [Nama User] - [Tanggal].docx
+        $userModel = new \App\Models\UserModel();
+        $user = $userModel->find($document['user_id']);
+        $userName = $user ? $user['name'] : 'User';
+        
+        $templateName = $template ? $template['name'] : 'Document';
+        $ext = pathinfo($filePath, PATHINFO_EXTENSION); // Ambil ekstensi asli (docx atau pdf)
+        $filename = $templateName . ' - ' . $userName . ' - ' . date('d-m-Y', strtotime($document['created_at'])) . '.' . $ext;
 
         return $this->response->download($filePath, null)->setFileName($filename);
     }
@@ -181,7 +193,7 @@ class DocumentController extends BaseController
         }
 
         // Cek akses
-        if ($this->request->userRole !== 'admin' && $document['user_id'] != $this->request->userId) {
+        if ($this->request->{'userRole'} !== 'admin' && $document['user_id'] != $this->request->{'userId'}) {
             return $this->response->setStatusCode(403)
                 ->setJSON(['error' => 'Anda tidak punya akses.']);
         }
@@ -198,6 +210,54 @@ class DocumentController extends BaseController
     }
 
     /**
+     * POST /api/documents/bulk-delete
+     * Hapus banyak dokumen sekaligus berdasarkan array ID.
+     */
+    public function bulkDelete()
+    {
+        $json = $this->request->getJSON(true);
+        $ids = $json['document_ids'] ?? [];
+
+        if (empty($ids) || !is_array($ids)) {
+            return $this->response->setStatusCode(400)
+                ->setJSON(['error' => 'Tidak ada dokumen yang dipilih.']);
+        }
+
+        $isAdmin = $this->request->{'userRole'} === 'admin';
+        $userId  = $this->request->{'userId'};
+
+        // Ambil data dokumen dari DB (untuk ambil file_path & validasi user_id)
+        $documents = $this->documentModel->whereIn('id', $ids)->findAll();
+
+        $idsToDelete = [];
+        $deletedFilesCount = 0;
+
+        foreach ($documents as $doc) {
+            // Cek akses: hanya admin atau pemilik dokumen yang boleh menghapus
+            if (!$isAdmin && $doc['user_id'] != $userId) {
+                continue; 
+            }
+            
+            $idsToDelete[] = $doc['id'];
+            
+            // Hapus file fisik
+            $filePath = FCPATH . ltrim($doc['file_path'], '/');
+            if (file_exists($filePath)) {
+                @unlink($filePath);
+                $deletedFilesCount++;
+            }
+        }
+
+        if (!empty($idsToDelete)) {
+            $this->documentModel->whereIn('id', $idsToDelete)->delete();
+        }
+
+        return $this->response->setJSON([
+            'message' => count($idsToDelete) . ' dokumen berhasil dihapus.'
+        ]);
+    }
+
+    /**
      * GET /api/documents/stats
      * 
      * Return statistik untuk dashboard.
@@ -208,11 +268,11 @@ class DocumentController extends BaseController
 
         $totalTemplates = $this->templateModel->where('is_active', 1)->countAllResults();
         
-        $isAdmin = $this->request->userRole === 'admin';
+        $isAdmin = $this->request->{'userRole'} === 'admin';
         
         $docBuilder = $db->table('documents');
         if (!$isAdmin) {
-            $docBuilder->where('user_id', $this->request->userId);
+            $docBuilder->where('user_id', $this->request->{'userId'});
         }
         $totalDocuments = $docBuilder->countAllResults();
 
@@ -220,7 +280,7 @@ class DocumentController extends BaseController
         $docMonthBuilder->where('MONTH(created_at)', date('m'));
         $docMonthBuilder->where('YEAR(created_at)', date('Y'));
         if (!$isAdmin) {
-            $docMonthBuilder->where('user_id', $this->request->userId);
+            $docMonthBuilder->where('user_id', $this->request->{'userId'});
         }
         $docsThisMonth = $docMonthBuilder->countAllResults();
 

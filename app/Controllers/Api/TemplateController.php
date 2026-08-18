@@ -39,7 +39,14 @@ class TemplateController extends BaseController
      */
     public function index()
     {
-        $templates = $this->templateModel->getActiveTemplates();
+        // Ambil data user yang sedang login dari UserModel (karena JWT token disimpan di request->userId)
+        $userModel = new \App\Models\UserModel();
+        $user = $userModel->find($this->request->{'userId'});
+        
+        // Super Admin = null, lihat semua. Admin/User Biasa = id direktoratnya
+        $directorateId = ($user && $user['directorate_id']) ? $user['directorate_id'] : null;
+
+        $templates = $this->templateModel->getActiveTemplates($directorateId);
 
         // Tambahkan jumlah field ke setiap template
         foreach ($templates as &$template) {
@@ -98,8 +105,11 @@ class TemplateController extends BaseController
                 ->setJSON(['error' => 'Hanya file .docx yang diterima.']);
         }
 
-        $name        = $this->request->getPost('name') ?: $file->getClientName();
-        $description = $this->request->getPost('description') ?: '';
+        $name          = $this->request->getPost('name') ?: $file->getClientName();
+        $description   = $this->request->getPost('description') ?: '';
+        $categoryId    = $this->request->getPost('category_id') ?? 1;
+        $directorateId = $this->request->getPost('directorate_id');
+        if ($directorateId === 'null' || empty($directorateId)) $directorateId = null;
 
         // Simpan file ke folder uploads/templates/
         $newName = $file->getRandomName();
@@ -125,12 +135,14 @@ class TemplateController extends BaseController
 
         // Simpan template ke database
         $templateId = $this->templateModel->insert([
-            'name'        => $name,
-            'slug'        => $this->templateModel->generateSlug($name),
-            'description' => $description,
-            'file_path'   => 'uploads/templates/' . $newName,
-            'file_name'   => $file->getClientName(),
-            'uploaded_by' => $this->request->userId,
+            'name'           => $name,
+            'slug'           => $this->templateModel->generateSlug($name),
+            'description'    => $description,
+            'category_id'    => $categoryId,
+            'directorate_id' => $directorateId,
+            'file_path'      => 'uploads/templates/' . $newName,
+            'file_name'      => $file->getClientName(),
+            'uploaded_by'    => $this->request->{'userId'},
         ]);
 
         // Simpan fields (placeholder) ke database
@@ -164,13 +176,20 @@ class TemplateController extends BaseController
         $updateData = [];
         if (isset($json['name'])) {
             $updateData['name'] = $json['name'];
-            $updateData['slug'] = $this->templateModel->generateSlug($json['name']);
+            $updateData['slug'] = $this->templateModel->generateSlug($json['name'], $id);
         }
         if (isset($json['description'])) {
             $updateData['description'] = $json['description'];
         }
+        if (isset($json['category_id'])) {
+            $updateData['category_id'] = $json['category_id'];
+        }
         if (isset($json['is_active'])) {
             $updateData['is_active'] = $json['is_active'];
+        }
+
+        if (array_key_exists('directorate_id', $json)) {
+            $updateData['directorate_id'] = $json['directorate_id'] === '' ? null : $json['directorate_id'];
         }
 
         $this->templateModel->update($id, $updateData);
@@ -199,10 +218,20 @@ class TemplateController extends BaseController
 
         $json   = $this->request->getJSON(true);
         $fields = $json['fields'] ?? [];
+        
+
 
         if (empty($fields)) {
             return $this->response->setStatusCode(400)
                 ->setJSON(['error' => 'Data fields tidak boleh kosong.']);
+        }
+
+        // Auto-run migration to ensure columns exist
+        try {
+            $migrate = \Config\Services::migrations();
+            $migrate->latest();
+        } catch (\Throwable $e) {
+            // Ignore if already migrated or fails
         }
 
         $this->fieldModel->syncFields($id, $fields);

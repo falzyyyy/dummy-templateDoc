@@ -126,3 +126,6 @@ _modules/*
 
 /results/
 /phpunit.xml
+
+/node_modules/
+node_modules/

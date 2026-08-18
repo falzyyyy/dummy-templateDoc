@@ -42,9 +42,9 @@ class JwtAuthFilter implements FilterInterface
 
         // Simpan data user ke request supaya bisa diakses di controller
         // Di controller: $this->request->userId, $this->request->userRole
-        $request->userId   = $decoded->uid;
-        $request->userEmail = $decoded->email;
-        $request->userRole = $decoded->role;
+        $request->{'userId'}   = $decoded->uid;
+        $request->{'userEmail'} = $decoded->email;
+        $request->{'userRole'}  = $decoded->role;
     }
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null)

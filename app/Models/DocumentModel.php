@@ -17,8 +17,9 @@ class DocumentModel extends Model
     protected $table         = 'documents';
     protected $primaryKey    = 'id';
     protected $allowedFields = ['template_id', 'user_id', 'data', 'file_path'];
-    protected $useTimestamps = false;
+    protected $useTimestamps = true;
     protected $createdField  = 'created_at';
+    protected $updatedField  = ''; // tabel documents tidak punya kolom updated_at
 
     /**
      * Ambil riwayat dokumen dengan info template dan user.

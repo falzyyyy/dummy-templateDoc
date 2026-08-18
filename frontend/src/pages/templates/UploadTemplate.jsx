@@ -1,16 +1,34 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
+import { useAlert } from '../../context/AlertContext';
 
 export default function UploadTemplate() {
   const navigate = useNavigate();
+  const { showAlert } = useAlert();
   const fileInputRef = useRef(null);
   const [file, setFile] = useState(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [categories, setCategories] = useState([]);
+  const [directorates, setDirectorates] = useState([]);
+  const [categoryId, setCategoryId] = useState('1');
+  const [directorateId, setDirectorateId] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/categories'),
+      api.get('/directorates')
+    ])
+    .then(([catRes, dirRes]) => {
+      setCategories(catRes.data.categories || []);
+      setDirectorates(dirRes.data.directorates || []);
+    })
+    .catch(err => console.error("Gagal load data form:", err));
+  }, []);
 
   const handleDrag = (e) => {
     e.preventDefault();
@@ -50,15 +68,18 @@ export default function UploadTemplate() {
     formData.append('file', file);
     formData.append('name', name);
     formData.append('description', description);
+    formData.append('category_id', categoryId);
+    formData.append('directorate_id', directorateId);
 
     try {
       const res = await api.post('/templates', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      alert(res.data.message);
+      showAlert('success', 'Berhasil!', res.data.message);
       navigate('/templates');
     } catch (err) {
-      setError(err.response?.data?.error || 'Gagal upload template.');
+      showAlert('error', 'Upload Gagal', err.response?.data?.error || 'Gagal mengupload template.');
+      setError(err.response?.data?.error || 'Gagal mengupload template.');
     } finally {
       setLoading(false);
     }
@@ -131,10 +152,25 @@ export default function UploadTemplate() {
         </div>
 
         <div className="grid grid-cols-1 gap-6">
-          {/* Name */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Nama Template <span className="text-red-500">*</span></label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="input-field" placeholder="Contoh: Surat Tugas Karyawan" required />
+          {/* Name & Category */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Nama Template <span className="text-red-500">*</span></label>
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="input-field" placeholder="Contoh: Surat Tugas Karyawan" required />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Kategori Template</label>
+              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input-field">
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Direktorat</label>
+              <select value={directorateId} onChange={(e) => setDirectorateId(e.target.value)} className="input-field">
+                <option value="">-- Template Global (Semua) --</option>
+                {directorates.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
           </div>
 
           {/* Description */}

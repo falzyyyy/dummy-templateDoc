@@ -1,56 +1,114 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useAlert } from '../../context/AlertContext';
+import { useAuth } from '../../context/AuthContext';
 
 export default function UserManagement() {
+  const { showAlert } = useAlert();
+  const { user: currentUser, isSuperAdmin, isAdminDirektorat } = useAuth();
   const [users, setUsers] = useState([]);
+  const [directorates, setDirectorates] = useState([]);
+  const [divisions, setDivisions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'user' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'user', directorate_id: '', division_id: '', permissions: [] });
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const fetchUsers = () => {
-    api.get('/users').then(res => setUsers(res.data.users || []))
-      .catch(console.error).finally(() => setLoading(false));
+  const AVAILABLE_PERMISSIONS = [
+    { id: 'upload_template', label: 'Upload & Konfigurasi Template' },
+    { id: 'generate_doc', label: 'Generate Dokumen' },
+    { id: 'manage_categories', label: 'Kelola Kategori' },
+    { id: 'manage_directorates', label: 'Kelola Direktorat' },
+    { id: 'manage_users', label: 'Kelola User' },
+  ];
+
+  const fetchData = async () => {
+    try {
+      const [uRes, dRes, divRes] = await Promise.all([
+        api.get('/users'),
+        api.get('/directorates'),
+        api.get('/divisions')
+      ]);
+      setUsers(uRes.data.users || []);
+      setDirectorates(dRes.data.directorates || []);
+      setDivisions(divRes.data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => { fetchData(); }, []);
 
-  const resetForm = () => { setForm({ name: '', email: '', password: '', role: 'user' }); setEditId(null); setShowForm(false); };
+  const resetForm = () => { 
+    setForm({ 
+      name: '', email: '', password: '', role: 'user', 
+      directorate_id: isAdminDirektorat ? currentUser?.directorate_id : '', 
+      division_id: '', permissions: [] 
+    }); 
+    setEditId(null); setShowForm(false); 
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setSaving(true);
     try {
+      const payload = { ...form };
+      if (!payload.password) delete payload.password;
+      if (payload.directorate_id === '') payload.directorate_id = null;
+      if (payload.division_id === '') payload.division_id = null;
+
       if (editId) {
-        const payload = { name: form.name, email: form.email, role: form.role };
-        if (form.password) payload.password = form.password;
         await api.put(`/users/${editId}`, payload);
       } else {
-        await api.post('/users', form);
+        await api.post('/users', payload);
       }
-      fetchUsers(); resetForm();
+      fetchData(); resetForm();
+      showAlert('success', 'Berhasil', 'Data pengguna berhasil disimpan.');
     } catch (err) {
       const errors = err.response?.data?.errors;
-      alert(errors ? Object.values(errors).join('\n') : err.response?.data?.error || 'Gagal menyimpan.');
+      showAlert('error', 'Gagal Menyimpan', errors ? Object.values(errors).join(', ') : err.response?.data?.error || 'Gagal menyimpan.');
     } finally { setSaving(false); }
   };
 
   const handleEdit = (user) => {
-    setForm({ name: user.name, email: user.email, password: '', role: user.role });
+    setForm({ 
+      name: user.name, 
+      email: user.email, 
+      password: '', 
+      role: user.role, 
+      directorate_id: user.directorate_id || '',
+      division_id: user.division_id || '',
+      permissions: user.permissions || []
+    });
     setEditId(user.id); setShowForm(true);
+  };
+
+  const handleTogglePermission = (permId) => {
+    setForm(p => {
+      const perms = p.permissions.includes(permId)
+        ? p.permissions.filter(x => x !== permId)
+        : [...p.permissions, permId];
+      return { ...p, permissions: perms };
+    });
   };
 
   const handleToggleActive = async (user) => {
     try {
       await api.put(`/users/${user.id}`, { is_active: user.is_active == 1 ? 0 : 1 });
-      fetchUsers();
-    } catch (err) { alert('Gagal mengubah status.'); }
+      fetchData();
+      showAlert('success', 'Status Diubah', 'Status pengguna berhasil diperbarui.');
+    } catch (err) { showAlert('error', 'Gagal', 'Gagal mengubah status.'); }
   };
 
   const handleDelete = async (id) => {
     if (!confirm('Apakah Anda yakin ingin menghapus user ini?')) return;
-    try { await api.delete(`/users/${id}`); fetchUsers(); }
-    catch (err) { alert(err.response?.data?.error || 'Gagal menghapus.'); }
+    try { 
+      await api.delete(`/users/${id}`); 
+      fetchData(); 
+      showAlert('success', 'Dihapus', 'Pengguna berhasil dihapus.');
+    } catch (err) { showAlert('error', 'Gagal', err.response?.data?.error || 'Gagal menghapus.'); }
   };
 
   if (loading) return <div className="flex items-center justify-center min-h-[60vh] text-slate-500">Memuat data user...</div>;
@@ -87,11 +145,51 @@ export default function UserManagement() {
               <input type="password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} className="input-field" placeholder="••••••••" {...(!editId && { required: true })} />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Level Akses (Role)</label>
-              <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))} className="input-field">
-                <option value="user">User Standar (Hanya generate form)</option>
-                <option value="admin">Administrator (Upload & kelola template)</option>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Role Pengguna</label>
+              <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value, directorate_id: (e.target.value === 'superadmin') ? '' : p.directorate_id }))} className="input-field disabled:bg-slate-100 disabled:text-slate-500" disabled={isAdminDirektorat}>
+                <option value="user">User Biasa</option>
+                {isSuperAdmin && <option value="admin_direktorat">Admin Direktorat</option>}
+                {isSuperAdmin && (!editId || form.role === 'superadmin') && <option value="superadmin">Super Admin</option>}
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Direktorat</label>
+              <select 
+                value={form.directorate_id} 
+                onChange={e => setForm(p => ({ ...p, directorate_id: e.target.value, division_id: '' }))} 
+                className="input-field disabled:bg-slate-100 disabled:text-slate-500" 
+                disabled={form.role === 'superadmin' || isAdminDirektorat}
+              >
+                {!isAdminDirektorat && <option value="">-- Lintas Direktorat (Super Admin) --</option>}
+                {directorates.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Divisi</label>
+              <select value={form.division_id} onChange={e => setForm(p => ({ ...p, division_id: e.target.value }))} className="input-field" disabled={!form.directorate_id}>
+                <option value="">-- Pilih Divisi --</option>
+                {divisions.filter(div => div.directorate_id == form.directorate_id).map(div => (
+                  <option key={div.id} value={div.id}>{div.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Hak Akses Fitur Khusus</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {AVAILABLE_PERMISSIONS.map(p => (
+                  <label key={p.id} className="flex items-center gap-2 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={form.permissions.includes(p.id)}
+                      onChange={() => handleTogglePermission(p.id)}
+                      className="w-4 h-4 text-[#008f51] border-gray-300 rounded focus:ring-[#008f51]"
+                    />
+                    <span className="text-sm text-slate-700">{p.label}</span>
+                  </label>
+                ))}
+              </div>
             </div>
             <div className="md:col-span-2 flex justify-end gap-3 pt-4 border-t border-slate-100">
               <button type="button" onClick={resetForm} className="btn-ghost">Batal</button>
@@ -110,7 +208,8 @@ export default function UserManagement() {
             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 uppercase tracking-wider text-[11px]">
               <tr>
                 <th className="px-6 py-4">Nama Lengkap</th>
-                <th className="px-6 py-4">Role</th>
+                <th className="px-6 py-4">Penempatan</th>
+                <th className="px-6 py-4">Hak Akses</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4 text-right">Aksi</th>
               </tr>
@@ -125,9 +224,25 @@ export default function UserManagement() {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${u.role === 'admin' ? 'bg-[#008f51]/10 text-[#008f51] border-[#008f51]/20' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                      {u.role === 'admin' ? 'Administrator' : 'User Standar'}
+                    <span className="text-sm font-medium text-slate-700 block">
+                      {u.directorate_name || <span className="text-purple-600 bg-purple-50 px-2 py-0.5 rounded text-xs border border-purple-200">Global (Superadmin)</span>}
                     </span>
+                    {u.division_name && <span className="text-xs text-slate-500 mt-1 block">Divisi: {u.division_name}</span>}
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1 max-w-[200px]">
+                      {u.role === 'superadmin' && (
+                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-700 border border-purple-200">Super Admin</span>
+                      )}
+                      {u.role === 'admin_direktorat' && (
+                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200">Admin Dir.</span>
+                      )}
+                      {(u.permissions || []).map(p => (
+                        <span key={p} className="inline-block px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 border border-slate-200" title={p}>
+                          {p.replace('manage_', '').replace('_', ' ')}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     <button onClick={() => handleToggleActive(u)} className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border cursor-pointer hover:shadow-sm transition-all ${u.is_active == 1 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>

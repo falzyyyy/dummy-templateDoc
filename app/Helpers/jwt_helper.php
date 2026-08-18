@@ -34,6 +34,7 @@ function generateJWT(array $user): string
         'uid' => $user['id'],            // User ID
         'email' => $user['email'],       // Email
         'role' => $user['role'],         // Role (admin/user)
+        'directorate_id' => $user['directorate_id'] ?? null, // Directorate ID for scoped access
     ];
 
     return JWT::encode($payload, $key, 'HS256');

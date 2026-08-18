@@ -7,6 +7,9 @@ import TemplateList from './pages/templates/TemplateList';
 import UploadTemplate from './pages/templates/UploadTemplate';
 import EditFields from './pages/templates/EditFields';
 import FillTemplate from './pages/templates/FillTemplate';
+import CategoryList from './pages/templates/CategoryList';
+import DirectorateList from './pages/directorates/DirectorateList';
+import DivisionList from './pages/divisions/DivisionList';
 import History from './pages/documents/History';
 import UserManagement from './pages/users/UserManagement';
 
@@ -35,6 +38,9 @@ export default function App() {
         <Route path="templates/:id/edit" element={<AdminRoute><EditFields /></AdminRoute>} />
         <Route path="templates/:slug/fill" element={<FillTemplate />} />
         <Route path="history" element={<History />} />
+        <Route path="categories" element={<AdminRoute><CategoryList /></AdminRoute>} />
+        <Route path="directorates" element={<AdminRoute><DirectorateList /></AdminRoute>} />
+        <Route path="divisions" element={<AdminRoute><DivisionList /></AdminRoute>} />
         <Route path="users" element={<AdminRoute><UserManagement /></AdminRoute>} />
       </Route>
     </Routes>

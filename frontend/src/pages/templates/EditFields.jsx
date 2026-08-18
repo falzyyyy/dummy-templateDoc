@@ -1,27 +1,51 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
+import { useAlert } from '../../context/AlertContext';
 
 const FIELD_TYPES = [
   { value: 'text', label: 'Teks Pendek (1 baris)' },
   { value: 'textarea', label: 'Teks Panjang (Paragraf)' },
+  { value: 'richtext', label: 'Editor Teks (Rich Text)' },
   { value: 'date', label: 'Pilih Tanggal' },
   { value: 'number', label: 'Angka (Number)' },
+  { value: 'currency', label: 'Mata Uang (Rupiah)' },
+  { value: 'image', label: 'Upload Gambar (Logo/Kop)' },
 ];
 
 export default function EditFields() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { showAlert } = useAlert();
   const [template, setTemplate] = useState(null);
   const [fields, setFields] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [directorates, setDirectorates] = useState([]);
+  
+  // Template Info State
+  const [templateName, setTemplateName] = useState('');
+  const [categoryId, setCategoryId] = useState('1');
+  const [directorateId, setDirectorateId] = useState('');
+  const [description, setDescription] = useState('');
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    api.get('/templates').then(res => {
-      const t = res.data.templates.find(t => String(t.id) === String(id));
+    Promise.all([
+      api.get('/templates'),
+      api.get('/categories'),
+      api.get('/directorates')
+    ]).then(([tplRes, catRes, dirRes]) => {
+      setCategories(catRes.data.categories || []);
+      setDirectorates(dirRes.data.directorates || []);
+      const t = tplRes.data.templates.find(t => String(t.id) === String(id));
       if (t) {
         setTemplate(t);
+        setTemplateName(t.name);
+        setCategoryId(t.category_id || '1');
+        setDirectorateId(t.directorate_id || '');
+        setDescription(t.description || '');
         return api.get(`/templates/${t.slug}`).then(r => setFields(r.data.template.fields || []));
       }
     }).catch(() => navigate('/templates')).finally(() => setLoading(false));
@@ -37,20 +61,32 @@ export default function EditFields() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // 1. Update Template Info
+      await api.put(`/templates/${id}`, {
+        name: templateName,
+        category_id: categoryId,
+        directorate_id: directorateId === '' ? null : directorateId,
+        description: description
+      });
+
+      // 2. Update Fields Configuration
       await api.put(`/templates/${id}/fields`, {
         fields: fields.map((f, i) => ({ 
+          id: f.id,
           field_key: f.field_key, 
           field_label: f.field_label, 
           field_type: f.field_type, 
           field_order: i + 1, 
           is_required: f.is_required ? 1 : 0, 
-          default_value: f.default_value || null 
+          default_value: f.default_value || null,
+          terbilang_target_id: f.terbilang_target_id || null
         }))
       });
-      alert('Konfigurasi form berhasil disimpan!'); 
+
+      showAlert('success', 'Berhasil', 'Informasi dan konfigurasi berhasil disimpan!'); 
       navigate('/templates');
     } catch (err) { 
-      alert(err.response?.data?.error || 'Gagal menyimpan.'); 
+      showAlert('error', 'Gagal', err.response?.data?.error || 'Gagal menyimpan.'); 
     } finally { 
       setSaving(false); 
     }
@@ -80,6 +116,36 @@ export default function EditFields() {
         </div>
       </div>
 
+      {/* Template Info Card */}
+      <div className="card p-6 space-y-4 bg-white">
+        <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-2 mb-4">Informasi Dasar Template</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Nama Template</label>
+            <input type="text" value={templateName} onChange={(e) => setTemplateName(e.target.value)} className="input-field" />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Kategori</label>
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input-field bg-white">
+              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Direktorat</label>
+            <select value={directorateId} onChange={(e) => setDirectorateId(e.target.value)} className="input-field bg-white">
+              <option value="">-- Template Global (Semua) --</option>
+              {directorates.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-semibold text-slate-700 mb-2">Deskripsi Singkat</label>
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="input-field min-h-[80px]" />
+        </div>
+      </div>
+
+      <h2 className="text-lg font-bold text-slate-800 mt-8 mb-4">Konfigurasi Placeholder (Form)</h2>
+      
       <div className="card divide-y divide-slate-100">
         {fields.length === 0 ? (
           <div className="p-8 text-center text-slate-500">Tidak ada placeholder yang terdeteksi di dokumen ini.</div>
@@ -126,6 +192,24 @@ export default function EditFields() {
                     <span className="text-sm text-slate-600 font-medium group-hover:text-slate-900 transition-colors">Wajib Diisi</span>
                   </label>
                 </div>
+
+                {/* Terbilang Target Mapping (Khusus Currency) */}
+                {field.field_type === 'currency' && (
+                  <div className="lg:col-span-12 mt-2 pt-3 border-t border-slate-100">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Target Field Terbilang (Opsional)</label>
+                    <select 
+                      value={field.terbilang_target_id || ''} 
+                      onChange={(e) => updateField(index, 'terbilang_target_id', e.target.value)} 
+                      className="input-field bg-white"
+                    >
+                      <option value="">-- Tidak ada --</option>
+                      {fields.filter(f => f.id !== field.id && f.field_type !== 'currency').map(f => (
+                        <option key={f.id} value={f.id}>${'{'}{f.field_key}{'}'}</option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-slate-400 mt-1">Pilih placeholder mana yang akan otomatis diisi oleh teks terbilang (misal: "Sepuluh Juta Rupiah"). Target yang dipilih akan disembunyikan dari form pengisian dokumen.</p>
+                  </div>
+                )}
               </div>
             </div>
           ))

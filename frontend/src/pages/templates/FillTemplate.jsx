@@ -1,10 +1,51 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
+import { useAlert } from '../../context/AlertContext';
+import { CKEditor } from '@ckeditor/ckeditor5-react';
+import {
+    ClassicEditor,
+    Essentials,
+    Bold,
+    Italic,
+    Underline,
+    Strikethrough,
+    Font,
+    Paragraph,
+    Heading,
+    List,
+    BlockQuote,
+    Alignment,
+    Table,
+    TableToolbar,
+    TableProperties,
+    TableCellProperties,
+    Undo,
+    Subscript,
+    Superscript,
+    Code,
+    Highlight,
+    Indent,
+    IndentBlock,
+    ListProperties,
+    RemoveFormat,
+    Link,
+    Image,
+    ImageInsert,
+    ImageToolbar,
+    ImageCaption,
+    ImageStyle,
+    ImageResize,
+    Base64UploadAdapter,
+    PasteFromOffice,
+    SelectAll
+} from 'ckeditor5';
+import 'ckeditor5/ckeditor5.css';
 
 export default function FillTemplate() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const { showAlert } = useAlert();
   const [template, setTemplate] = useState(null);
   const [fields, setFields] = useState([]);
   const [formData, setFormData] = useState({});
@@ -12,9 +53,13 @@ export default function FillTemplate() {
   const [generating, setGenerating] = useState(false);
   const [errors, setErrors] = useState({});
   const [success, setSuccess] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
+  const [hasPreview, setHasPreview] = useState(false);
 
   useEffect(() => {
-    api.get(`/templates/${slug}`).then(res => {
+    api.get(`/templates/${slug}`).then(async res => {
       const t = res.data.template;
       setTemplate(t);
       setFields(t.fields || []);
@@ -24,16 +69,64 @@ export default function FillTemplate() {
     }).catch(console.error).finally(() => setLoading(false));
   }, [slug]);
 
+  const handleMuatPreview = async () => {
+    setPreviewLoading(true);
+    setErrors({}); // reset errors if any
+
+    try {
+      const res = await api.post(`/documents/generate/${slug}`, { 
+        data: formData, 
+        format: 'pdf', 
+        is_preview: true 
+      });
+      
+      if (res.data.base64) {
+        // Convert base64 to Blob
+        const byteCharacters = atob(res.data.base64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
+        
+        // Revoke old URL if exists to prevent memory leak
+        if (pdfPreviewUrl) {
+           URL.revokeObjectURL(pdfPreviewUrl);
+        }
+        
+        const url = URL.createObjectURL(blob);
+        setPdfPreviewUrl(url);
+        setHasPreview(true);
+        setIsModalOpen(true);
+        return blob;
+      } else {
+          showAlert('error', 'Preview Error', 'Base64 tidak ditemukan dari server.');
+          return null;
+      }
+    } catch (err) {
+      console.error("Gagal update preview:", err);
+      if (err.response?.data?.errors) {
+        setErrors(err.response.data.errors);
+        showAlert('error', 'Validasi Gagal', 'Silakan lengkapi semua kolom yang wajib diisi terlebih dahulu.');
+      } else {
+        showAlert('error', 'Preview Error', err.response?.data?.error || err.message || 'Gagal mengambil preview dari server.');
+      }
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   const handleChange = (key, value) => {
     setFormData(prev => ({ ...prev, [key]: value }));
     if (errors[key]) setErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
   };
 
-  const handleGenerate = async (e) => {
-    e.preventDefault();
-    setGenerating(true); setErrors({}); setSuccess(null);
+
+  const handleGenerate = async (format = 'docx') => {
+    setGenerating(format); setErrors({}); setSuccess(null);
     try {
-      const res = await api.post(`/documents/generate/${slug}`, { data: formData });
+      const res = await api.post(`/documents/generate/${slug}`, { data: formData, format });
       setSuccess(res.data);
       // Auto download
       const docId = res.data.document.id;
@@ -45,13 +138,28 @@ export default function FillTemplate() {
       const blob = await downloadRes.blob();
       const url = window.URL.createObjectURL(blob);
       link.href = url;
-      link.download = `${template.name}.docx`;
+      link.download = `${template.name}.${format}`;
       link.click();
       window.URL.revokeObjectURL(url);
+      
+      showAlert('success', 'Berhasil!', `Dokumen berhasil diunduh sebagai ${format.toUpperCase()}.`);
     } catch (err) {
       if (err.response?.data?.errors) setErrors(err.response.data.errors);
-      else alert(err.response?.data?.error || 'Gagal generate dokumen.');
+      else showAlert('error', 'Gagal', err.response?.data?.error || 'Terjadi kesalahan saat membuat dokumen.');
     } finally { setGenerating(false); }
+  };
+
+  const handleFileChange = (key, file) => {
+    if (!file) { handleChange(key, ''); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => handleChange(key, e.target.result);
+    reader.readAsDataURL(file);
+  };
+  const formatRupiah = (value) => {
+    if (!value) return '';
+    const number = parseInt(value, 10);
+    if (isNaN(number)) return '';
+    return new Intl.NumberFormat('id-ID').format(number);
   };
 
   const renderField = (field) => {
@@ -62,10 +170,85 @@ export default function FillTemplate() {
     switch (field.field_type) {
       case 'textarea':
         return <textarea value={val} onChange={e => handleChange(field.field_key, e.target.value)} className={`${baseClass} min-h-[120px] resize-y`} placeholder={`Masukkan ${field.field_label}...`} />;
+      case 'richtext':
+        return (
+          <div className={`prose-sm ${hasErr ? 'border border-red-300 rounded' : ''}`}>
+            <CKEditor
+              editor={ClassicEditor}
+              data={val}
+              config={{
+                licenseKey: 'GPL',
+                plugins: [
+                    Essentials, Bold, Italic, Underline, Strikethrough, Font, Paragraph, 
+                    Heading, List, BlockQuote, Alignment, Table, TableToolbar, 
+                    TableProperties, TableCellProperties, Undo,
+                    Subscript, Superscript, Code, Highlight, Indent, IndentBlock, 
+                    ListProperties, RemoveFormat, Link, Image, ImageInsert, 
+                    ImageToolbar, ImageCaption, ImageStyle, ImageResize, 
+                    Base64UploadAdapter, PasteFromOffice, SelectAll
+                ],
+                toolbar: [
+                    'heading', '|',
+                    'fontFamily', 'fontSize', '|',
+                    'bold', 'italic', 'underline', 'strikethrough', 'subscript', 'superscript', 'code', '|',
+                    'alignment', 'outdent', 'indent', '|',
+                    'bulletedList', 'numberedList', 'blockQuote', '|',
+                    'link', 'insertImage', 'insertTable', 'tableProperties', '|',
+                    'removeFormat', 'selectAll', '|',
+                    'undo', 'redo'
+                ],
+                fontSize: {
+                    options: [
+                        8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72
+                    ]
+                },
+                image: {
+                    toolbar: [
+                        'imageStyle:inline', 'imageStyle:block', 'imageStyle:side', '|',
+                        'toggleImageCaption', 'imageTextAlternative'
+                    ]
+                },
+                table: {
+                    contentToolbar: [
+                        'tableColumn', 'tableRow', 'mergeTableCells',
+                        'tableProperties', 'tableCellProperties'
+                    ]
+                }
+              }}
+              onChange={(event, editor) => {
+                const data = editor.getData();
+                handleChange(field.field_key, data);
+              }}
+            />
+          </div>
+        );
       case 'date':
         return <input type="date" value={val} onChange={e => handleChange(field.field_key, e.target.value)} className={baseClass} />;
       case 'number':
         return <input type="number" value={val} onChange={e => handleChange(field.field_key, e.target.value)} className={baseClass} placeholder="0" />;
+      case 'currency':
+        return (
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-medium">Rp</span>
+            <input
+              type="text"
+              className={`${baseClass} pl-9`}
+              value={formatRupiah(val)}
+              onChange={(e) => {
+                const rawValue = e.target.value.replace(/\D/g, '');
+                handleChange(field.field_key, rawValue);
+              }}
+              placeholder={`Contoh: 15000000`}
+            />
+          </div>
+        );
+      case 'image':
+        return (
+          <div>
+            <input type="file" accept="image/png, image/jpeg" onChange={e => handleFileChange(field.field_key, e.target.files[0])} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#008f51]/10 file:text-[#008f51] hover:file:bg-[#008f51]/20 cursor-pointer" />
+            {val && <img src={val} alt="Preview" className="mt-3 h-20 object-contain rounded border border-slate-200" />}
+          </div>
+        );
       default:
         return <input type="text" value={val} onChange={e => handleChange(field.field_key, e.target.value)} className={baseClass} placeholder={`Masukkan ${field.field_label}...`} />;
     }
@@ -80,7 +263,7 @@ export default function FillTemplate() {
   if (!template) return <div className="text-center py-20 text-slate-500">Template tidak ditemukan.</div>;
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 animate-fade-in">
+    <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
       <div>
         <div className="flex items-center gap-2 mb-2">
           <button onClick={() => navigate('/templates')} className="text-slate-400 hover:text-slate-600 transition-colors">
@@ -90,16 +273,6 @@ export default function FillTemplate() {
         </div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{template.name}</h1>
         <p className="text-sm text-slate-500 mt-1">{template.description || 'Isi formulir di bawah ini untuk menghasilkan dokumen.'}</p>
-      </div>
-
-      <div className="card p-5 bg-slate-50 flex items-start gap-4">
-        <div className="w-12 h-12 bg-white rounded-xl shadow-sm border border-slate-200 flex items-center justify-center text-2xl flex-shrink-0">📝</div>
-        <div>
-          <p className="text-sm font-semibold text-slate-800">{fields.length} informasi diperlukan</p>
-          <p className="text-sm text-slate-500 mt-1 leading-relaxed">
-            Data yang Anda masukkan akan digabungkan secara otomatis ke dalam file Word (<code className="bg-slate-200 px-1 rounded text-slate-700">{template.file_name}</code>) tanpa merusak format aslinya.
-          </p>
-        </div>
       </div>
 
       {success && (
@@ -114,39 +287,123 @@ export default function FillTemplate() {
         </div>
       )}
 
-      <form onSubmit={handleGenerate} className="card p-6 sm:p-8 space-y-5">
-        {fields.map((field) => (
-          <div key={field.id}>
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-              {field.field_label}
-              {field.is_required == 1 && <span className="text-red-500 ml-1">*</span>}
-            </label>
-            {renderField(field)}
-            {errors[field.field_key] && (
-              <p className="text-xs text-red-500 mt-1.5 font-medium flex items-center gap-1">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                {errors[field.field_key]}
+      <div className="space-y-6">
+        {/* Form Input */}
+        <div className="space-y-6">
+          <div className="card p-5 bg-slate-50 flex items-start gap-4">
+            <div className="w-12 h-12 bg-white rounded-xl shadow-sm border border-slate-200 flex items-center justify-center text-2xl flex-shrink-0">📝</div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800">{fields.filter(f => f.is_auto_generated != 1).length} informasi diperlukan</p>
+              <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+                Data yang dimasukkan akan langsung tampil di panel Live Preview sebelah kanan.
               </p>
-            )}
+            </div>
           </div>
-        ))}
 
-        <div className="pt-4 mt-6 border-t border-slate-100">
-          <button type="submit" disabled={generating} className="btn-primary w-full justify-center py-3.5 text-base shadow-md">
-            {generating ? (
-              <span className="flex items-center gap-2">
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                Memproses Dokumen...
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
-                Generate & Unduh Dokumen
-              </span>
-            )}
-          </button>
+          <form onSubmit={e => e.preventDefault()} className="card p-6 sm:p-8 space-y-5">
+            {fields.filter(f => f.is_auto_generated != 1).map((field) => (
+              <div key={field.id}>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                  {field.field_label}
+                </label>
+                {renderField(field)}
+                {errors[field.field_key] && (
+                  <p className="text-xs text-red-500 mt-1.5 font-medium flex items-center gap-1">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    {errors[field.field_key]}
+                  </p>
+                )}
+              </div>
+            ))}
+
+            <div className="pt-4 mt-6 border-t border-slate-100 flex flex-col sm:flex-row gap-3">
+              <button 
+                type="button" 
+                onClick={() => handleGenerate('docx')}
+                disabled={generating !== false || previewLoading} 
+                className="btn-primary flex-1 justify-center py-3.5 text-base shadow-md bg-blue-600 hover:bg-blue-700 focus:ring-blue-500"
+              >
+                {generating === 'docx' ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    Memproses...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Unduh Word (.docx)
+                  </span>
+                )}
+              </button>
+
+              <button 
+                type="button" 
+                onClick={handleMuatPreview}
+                disabled={previewLoading || generating !== false} 
+                className="btn-primary flex-1 justify-center py-3.5 text-base shadow-md bg-blue-500 hover:bg-blue-600 focus:ring-blue-400"
+              >
+                {previewLoading ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    Memuat...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    Lihat Preview
+                  </span>
+                )}
+              </button>
+
+                <button 
+                  type="button" 
+                  onClick={() => handleGenerate('pdf')}
+                  disabled={generating !== false || previewLoading} 
+                  className="btn-primary flex-1 justify-center py-3.5 text-base shadow-md bg-red-600 hover:bg-red-700 focus:ring-red-500"
+                >
+                {generating === 'pdf' ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    Memproses...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    Unduh PDF
+                  </span>
+                )}
+              </button>
+            </div>
+          </form>
         </div>
-      </form>
+      </div>
+
+      {/* Modal Preview PDF */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/75 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white w-full max-w-5xl h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-scale-up">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-600"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                Preview Dokumen (PDF)
+              </h2>
+              <button 
+                onClick={() => setIsModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                title="Tutup Preview"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div className="flex-1 bg-[#525659] p-0">
+               {pdfPreviewUrl ? (
+                 <iframe src={pdfPreviewUrl} width="100%" height="100%" type="application/pdf" className="w-full h-full border-none" />
+               ) : (
+                 <div className="flex items-center justify-center h-full text-white/50">Memuat PDF...</div>
+               )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

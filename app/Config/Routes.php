@@ -59,13 +59,44 @@ $routes->group('api/documents', ['filter' => 'jwt'], function ($routes) {
     $routes->post('generate/(:segment)', 'Api\DocumentController::generate/$1'); // Generate
     $routes->get('/', 'Api\DocumentController::history');                  // Riwayat
     $routes->get('(:num)/download', 'Api\DocumentController::download/$1'); // Download
+    $routes->post('bulk-delete', 'Api\DocumentController::bulkDelete');    // Hapus massal
     $routes->delete('(:num)', 'Api\DocumentController::delete/$1');        // Hapus
 });
 
 // =============================================
-// USERS — Perlu admin
+// CATEGORIES — Perlu login & admin
 // =============================================
-$routes->group('api/users', ['filter' => 'admin'], function ($routes) {
+$routes->group('api/categories', ['filter' => 'jwt'], function ($routes) {
+    $routes->get('/', 'Api\CategoryController::index');
+    $routes->post('/', 'Api\CategoryController::create', ['filter' => 'admin']);
+    $routes->put('(:num)', 'Api\CategoryController::update/$1', ['filter' => 'admin']);
+    $routes->delete('(:num)', 'Api\CategoryController::delete/$1', ['filter' => 'admin']);
+});
+
+// =============================================
+// DIRECTORATES — Perlu admin
+// =============================================
+$routes->group('api/directorates', ['filter' => 'admin'], function ($routes) {
+    $routes->get('/', 'Api\DirectorateController::index');
+    $routes->post('/', 'Api\DirectorateController::create');
+    $routes->put('(:num)', 'Api\DirectorateController::update/$1');
+    $routes->delete('(:num)', 'Api\DirectorateController::delete/$1');
+});
+
+// =============================================
+// DIVISIONS — Perlu scope
+// =============================================
+$routes->group('api/divisions', ['filter' => 'scope'], function ($routes) {
+    $routes->get('/', 'Api\DivisionController::index');
+    $routes->post('/', 'Api\DivisionController::create');
+    $routes->put('(:num)', 'Api\DivisionController::update/$1');
+    $routes->delete('(:num)', 'Api\DivisionController::delete/$1');
+});
+
+// =============================================
+// USERS — Perlu scope
+// =============================================
+$routes->group('api/users', ['filter' => 'scope'], function ($routes) {
     $routes->get('/', 'Api\UserController::index');
     $routes->post('/', 'Api\UserController::create');
     $routes->put('(:num)', 'Api\UserController::update/$1');

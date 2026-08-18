@@ -17,6 +17,7 @@ const navItems = [
   {
     to: '/templates',
     label: 'Templates',
+    end: true,
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -39,6 +40,40 @@ const navItems = [
     ),
   },
   {
+    to: '/categories',
+    label: 'Kategori Template',
+    requiredPermission: 'manage_categories',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+      </svg>
+    ),
+  },
+  {
+    to: '/directorates',
+    label: 'Kelola Direktorat',
+    requiredPermission: 'manage_directorates',
+    superAdminOnly: true,
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+      </svg>
+    ),
+  },
+  {
+    to: '/divisions',
+    label: 'Kelola Divisi',
+    superAdminOnly: true,
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+        <line x1="9" y1="3" x2="9" y2="21"></line>
+        <path d="M13 8h4M13 12h4M13 16h4"></path>
+      </svg>
+    ),
+  },
+  {
     to: '/history',
     label: 'Riwayat Dokumen',
     icon: (
@@ -51,7 +86,7 @@ const navItems = [
   {
     to: '/users',
     label: 'Kelola User',
-    adminOnly: true,
+    requiredPermission: 'manage_users',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -64,7 +99,7 @@ const navItems = [
 ];
 
 export default function Sidebar({ isOpen, onClose }) {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, hasPermission, isAdmin, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -72,7 +107,12 @@ export default function Sidebar({ isOpen, onClose }) {
     navigate('/login');
   };
 
-  const filteredItems = navItems.filter(item => !item.adminOnly || isAdmin);
+  const filteredItems = navItems.filter(item => {
+    if (item.superAdminOnly && !isSuperAdmin) return false;
+    if (item.adminOnly && !isAdmin && !hasPermission('upload_template')) return false;
+    if (item.requiredPermission && !hasPermission(item.requiredPermission)) return false;
+    return true;
+  });
 
   return (
     <aside
@@ -103,7 +143,7 @@ export default function Sidebar({ isOpen, onClose }) {
           <NavLink
             key={item.to}
             to={item.to}
-            end={item.to === '/'}
+            end={item.end || item.to === '/'}
             onClick={onClose}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
@@ -113,10 +153,14 @@ export default function Sidebar({ isOpen, onClose }) {
               }`
             }
           >
-            <span className={({isActive}) => isActive ? 'text-[#008f51]' : 'text-slate-400'}>
-              {item.icon}
-            </span>
-            {item.label}
+            {({ isActive }) => (
+              <>
+                <span className={isActive ? 'text-[#008f51]' : 'text-slate-400'}>
+                  {item.icon}
+                </span>
+                {item.label}
+              </>
+            )}
           </NavLink>
         ))}
       </nav>

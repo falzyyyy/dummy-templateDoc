@@ -46,10 +46,18 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
-  const isAdmin = user?.role === 'admin';
+  const isSuperAdmin = user?.role === 'superadmin';
+  const isAdminDirektorat = user?.role === 'admin_direktorat';
+  const isAdmin = isSuperAdmin || isAdminDirektorat;
+  
+  const hasPermission = (perm) => {
+    if (isSuperAdmin) return true; // Super Admin bypass
+    if (!user?.permissions) return false;
+    return user.permissions.includes(perm);
+  };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading, isAdmin }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, isAdmin, isSuperAdmin, isAdminDirektorat, hasPermission }}>
       {children}
     </AuthContext.Provider>
   );

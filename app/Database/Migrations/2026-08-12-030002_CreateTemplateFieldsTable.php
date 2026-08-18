@@ -47,7 +47,7 @@ class CreateTemplateFieldsTable extends Migration
             ],
             'field_type' => [
                 'type'       => 'ENUM',
-                'constraint' => ['text', 'textarea', 'date', 'number'],
+                'constraint' => ['text', 'textarea', 'date', 'number', 'image'],
                 'default'    => 'text',
             ],
             'field_order' => [

@@ -36,6 +36,8 @@ class Filters extends BaseFilters
         'performance'   => PerformanceMetrics::class,
         'jwt'           => \App\Filters\JwtAuthFilter::class,
         'admin'         => \App\Filters\AdminRoleFilter::class,
+        'permission'    => \App\Filters\PermissionFilter::class,
+        'scope'         => \App\Filters\ScopeToDirectorateFilter::class,
     ];
 
     /**

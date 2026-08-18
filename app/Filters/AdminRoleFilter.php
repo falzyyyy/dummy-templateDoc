@@ -39,16 +39,16 @@ class AdminRoleFilter implements FilterInterface
                 ->setJSON(['error' => 'Token tidak valid.']);
         }
 
-        // Cek role: harus admin
-        if ($decoded->role !== 'admin') {
+        // Cek role: harus admin_direktorat, superadmin, atau admin (legacy)
+        if (!in_array($decoded->role, ['superadmin', 'admin_direktorat', 'admin'])) {
             return service('response')
                 ->setStatusCode(403)
                 ->setJSON(['error' => 'Akses ditolak. Hanya admin yang bisa mengakses fitur ini.']);
         }
 
-        $request->userId    = $decoded->uid;
-        $request->userEmail = $decoded->email;
-        $request->userRole  = $decoded->role;
+        $request->{'userId'}    = $decoded->uid;
+        $request->{'userEmail'} = $decoded->email;
+        $request->{'userRole'}  = $decoded->role;
     }
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null)

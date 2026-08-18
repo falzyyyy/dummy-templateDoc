@@ -18,20 +18,30 @@ class TemplateModel extends Model
 {
     protected $table         = 'templates';
     protected $primaryKey    = 'id';
-    protected $allowedFields = ['name', 'slug', 'description', 'file_path', 'file_name', 'uploaded_by', 'is_active'];
+    protected $allowedFields = ['name', 'slug', 'description', 'category_id', 'directorate_id', 'file_path', 'file_name', 'uploaded_by', 'is_active'];
     protected $useTimestamps = true;
 
     /**
      * Ambil semua template yang aktif (is_active = 1).
      * Join ke tabel users untuk dapat nama admin yang upload.
      */
-    public function getActiveTemplates(): array
+    public function getActiveTemplates(?int $directorateId = null): array
     {
-        return $this->select('templates.*, users.name as uploader_name')
+        $query = $this->select('templates.*, users.name as uploader_name, template_categories.name as category_name, directorates.name as directorate_name')
                     ->join('users', 'users.id = templates.uploaded_by')
-                    ->where('templates.is_active', 1)
-                    ->orderBy('templates.created_at', 'DESC')
-                    ->findAll();
+                    ->join('template_categories', 'template_categories.id = templates.category_id', 'left')
+                    ->join('directorates', 'directorates.id = templates.directorate_id', 'left')
+                    ->where('templates.is_active', 1);
+
+        if ($directorateId !== null) {
+            // Filter: Hanya tampilkan template milik directorate_id user ATAU template global (directorate_id IS NULL)
+            $query->groupStart()
+                  ->where('templates.directorate_id', $directorateId)
+                  ->orWhere('templates.directorate_id', null)
+                  ->groupEnd();
+        }
+
+        return $query->orderBy('templates.created_at', 'DESC')->findAll();
     }
 
     /**
@@ -41,8 +51,9 @@ class TemplateModel extends Model
      */
     public function getBySlug(string $slug): ?array
     {
-        return $this->select('templates.*, users.name as uploader_name')
+        return $this->select('templates.*, users.name as uploader_name, directorates.name as directorate_name')
                     ->join('users', 'users.id = templates.uploaded_by')
+                    ->join('directorates', 'directorates.id = templates.directorate_id', 'left')
                     ->where('templates.slug', $slug)
                     ->first();
     }
@@ -51,20 +62,29 @@ class TemplateModel extends Model
      * Generate slug unik dari nama template.
      * Jika sudah ada yang sama, tambahkan angka di belakang (-2, -3, dst).
      */
-    public function generateSlug(string $name): string
+    public function generateSlug(string $name, ?int $ignoreId = null): string
     {
         // Ubah ke lowercase, ganti spasi/karakter khusus jadi dash
         $slug = url_title($name, '-', true);
         
         // Cek apakah slug sudah ada
-        $existing = $this->where('slug', $slug)->first();
+        $query = $this->where('slug', $slug);
+        if ($ignoreId !== null) {
+            $query = $query->where('id !=', $ignoreId);
+        }
+        $existing = $query->first();
         if (!$existing) {
             return $slug;
         }
 
         // Jika sudah ada, tambahkan angka
         $counter = 2;
-        while ($this->where('slug', $slug . '-' . $counter)->first()) {
+        while (true) {
+            $checkQuery = $this->where('slug', $slug . '-' . $counter);
+            if ($ignoreId !== null) {
+                $checkQuery = $checkQuery->where('id !=', $ignoreId);
+            }
+            if (!$checkQuery->first()) break;
             $counter++;
         }
         return $slug . '-' . $counter;
