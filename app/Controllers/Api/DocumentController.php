@@ -67,6 +67,7 @@ class DocumentController extends BaseController
         $formData  = $json['data'] ?? [];
         $format    = $json['format'] ?? 'docx';
         $isPreview = $json['is_preview'] ?? false;
+        $parentDocId = $json['parent_document_id'] ?? null;
 
         // Validasi field required telah dihapus sesuai permintaan user
         // 4. Generate dokumen Word / PDF
@@ -92,11 +93,19 @@ class DocumentController extends BaseController
 
         // 5. Simpan riwayat
         $relativePath = str_replace(FCPATH, '', $outputPath);
+        
+        // AUTO-TAGGING berdasarkan identitas user pembuat dokumen
+        $userModel = new \App\Models\UserModel();
+        $currentUser = $userModel->find($this->request->{'userId'});
+
         $docId = $this->documentModel->insert([
-            'template_id' => $template['id'],
-            'user_id'     => $this->request->{'userId'},
-            'data'        => json_encode($formData),
-            'file_path'   => $relativePath,
+            'template_id'        => $template['id'],
+            'user_id'            => $this->request->{'userId'},
+            'directorate_id'     => $currentUser ? $currentUser['directorate_id'] : null,
+            'division_id'        => $currentUser ? $currentUser['division_id'] : null,
+            'parent_document_id' => $parentDocId,
+            'data'               => json_encode($formData),
+            'file_path'          => $relativePath,
         ]);
 
         // 6. Return info dokumen + link download
@@ -113,6 +122,68 @@ class DocumentController extends BaseController
     }
 
     /**
+     * GET /api/documents/:id/revision-data
+     * 
+     * Ambil data isian dari dokumen lama untuk direkonsiliasi dengan field template saat ini.
+     */
+    public function getRevisionData(int $id)
+    {
+        // Auto-run migration to ensure parent_document_id exists
+        try {
+            $migrate = \Config\Services::migrations();
+            $migrate->latest();
+        } catch (\Throwable $e) {}
+
+        $document = $this->documentModel->getDocumentForRevision($id);
+
+        if (!$document) {
+            return $this->response->setStatusCode(404)
+                ->setJSON(['error' => 'Dokumen tidak ditemukan.']);
+        }
+
+        // Cek akses Hierarchical Data Isolation
+        $scopedDirectorate = $_SERVER['SCOPED_DIRECTORATE_ID'] ?? null;
+        $scopedDivision    = $_SERVER['SCOPED_DIVISION_ID'] ?? null;
+
+        if ($scopedDirectorate !== null && $document['directorate_id'] != $scopedDirectorate) {
+            return $this->response->setStatusCode(403)
+                ->setJSON(['error' => 'Akses ditolak. Dokumen berasal dari direktorat lain.']);
+        }
+        if ($scopedDivision !== null && $document['division_id'] != $scopedDivision) {
+            return $this->response->setStatusCode(403)
+                ->setJSON(['error' => 'Akses ditolak. Dokumen berasal dari divisi lain.']);
+        }
+
+        // Decode data lama
+        $oldData = json_decode($document['data'] ?? '{}', true) ?: [];
+
+        // Ambil fields template saat ini
+        $currentFields = $this->fieldModel->getByTemplate($document['template_id']);
+
+        // Rekonsiliasi: Cocokkan key data lama dengan current fields
+        $reconciledData = [];
+
+        foreach ($currentFields as $field) {
+            // Jika field bernilai auto_generated (terbilang, dll.), lewati pre-fill
+            if (!empty($field['is_auto_generated'])) {
+                continue;
+            }
+
+            $key = $field['field_key'];
+            if (array_key_exists($key, $oldData)) {
+                $reconciledData[$key] = $oldData[$key];
+            }
+        }
+
+        return $this->response->setJSON([
+            'document_id'   => $document['id'],
+            'template_slug' => $document['template_slug'],
+            'template_name' => $document['template_name'],
+            'data'          => $reconciledData,
+        ]);
+    }
+
+    /**
      * GET /api/documents
      * 
      * Riwayat dokumen yang sudah di-generate.
@@ -125,14 +196,26 @@ class DocumentController extends BaseController
         $db = \Config\Database::connect();
         $db->query("UPDATE documents SET created_at = NOW() WHERE created_at IS NULL");
 
-        $userId = null;
+        // Ambil scope dari JWT filter
+        $directorateId = $_SERVER['SCOPED_DIRECTORATE_ID'] ?? null;
+        $divisionId    = $_SERVER['SCOPED_DIVISION_ID'] ?? null;
+        $currentUserId = $this->request->{'userId'} ?? null;
 
-        // Kalau bukan admin, filter hanya milik user ini
-        if ($this->request->{'userRole'} !== 'admin') {
-            $userId = $this->request->{'userId'};
-        }
+        // Ambil query params dari URL request
+        $scope     = $this->request->getGet('scope');
+        $search    = $this->request->getGet('search');
+        $startDate = $this->request->getGet('start_date');
+        $endDate   = $this->request->getGet('end_date');
 
-        $documents = $this->documentModel->getHistory($userId);
+        $documents = $this->documentModel->getHistory(
+            $directorateId, 
+            $divisionId, 
+            $currentUserId, 
+            $scope, 
+            $search, 
+            $startDate, 
+            $endDate
+        );
 
         return $this->response->setJSON(['documents' => $documents]);
     }
@@ -152,10 +235,15 @@ class DocumentController extends BaseController
                 ->setJSON(['error' => 'Dokumen tidak ditemukan.']);
         }
 
-        // Cek akses: user biasa hanya bisa download miliknya
-        if ($this->request->{'userRole'} !== 'admin' && $document['user_id'] != $this->request->{'userId'}) {
-            return $this->response->setStatusCode(403)
-                ->setJSON(['error' => 'Anda tidak punya akses ke dokumen ini.']);
+        // Cek akses Hierarchical Data Isolation
+        $scopedDirectorate = $_SERVER['SCOPED_DIRECTORATE_ID'] ?? null;
+        $scopedDivision    = $_SERVER['SCOPED_DIVISION_ID'] ?? null;
+
+        if ($scopedDirectorate && $document['directorate_id'] != $scopedDirectorate) {
+            return $this->response->setStatusCode(403)->setJSON(['error' => 'Akses ditolak: Dokumen di luar direktorat Anda.']);
+        }
+        if ($scopedDivision && $document['division_id'] != $scopedDivision) {
+            return $this->response->setStatusCode(403)->setJSON(['error' => 'Akses ditolak: Dokumen di luar divisi Anda.']);
         }
 
         $filePath = FCPATH . $document['file_path'];
@@ -192,10 +280,15 @@ class DocumentController extends BaseController
                 ->setJSON(['error' => 'Dokumen tidak ditemukan.']);
         }
 
-        // Cek akses
-        if ($this->request->{'userRole'} !== 'admin' && $document['user_id'] != $this->request->{'userId'}) {
-            return $this->response->setStatusCode(403)
-                ->setJSON(['error' => 'Anda tidak punya akses.']);
+        // Cek akses Hierarchical Data Isolation
+        $scopedDirectorate = $_SERVER['SCOPED_DIRECTORATE_ID'] ?? null;
+        $scopedDivision    = $_SERVER['SCOPED_DIVISION_ID'] ?? null;
+
+        if ($scopedDirectorate && $document['directorate_id'] != $scopedDirectorate) {
+            return $this->response->setStatusCode(403)->setJSON(['error' => 'Akses ditolak: Dokumen di luar direktorat Anda.']);
+        }
+        if ($scopedDivision && $document['division_id'] != $scopedDivision) {
+            return $this->response->setStatusCode(403)->setJSON(['error' => 'Akses ditolak: Dokumen di luar divisi Anda.']);
         }
 
         // Hapus file
@@ -223,8 +316,8 @@ class DocumentController extends BaseController
                 ->setJSON(['error' => 'Tidak ada dokumen yang dipilih.']);
         }
 
-        $isAdmin = $this->request->{'userRole'} === 'admin';
-        $userId  = $this->request->{'userId'};
+        $scopedDirectorate = $_SERVER['SCOPED_DIRECTORATE_ID'] ?? null;
+        $scopedDivision    = $_SERVER['SCOPED_DIVISION_ID'] ?? null;
 
         // Ambil data dokumen dari DB (untuk ambil file_path & validasi user_id)
         $documents = $this->documentModel->whereIn('id', $ids)->findAll();
@@ -233,10 +326,9 @@ class DocumentController extends BaseController
         $deletedFilesCount = 0;
 
         foreach ($documents as $doc) {
-            // Cek akses: hanya admin atau pemilik dokumen yang boleh menghapus
-            if (!$isAdmin && $doc['user_id'] != $userId) {
-                continue; 
-            }
+            // Cek akses Hierarchical Data Isolation
+            if ($scopedDirectorate && $doc['directorate_id'] != $scopedDirectorate) continue;
+            if ($scopedDivision && $doc['division_id'] != $scopedDivision) continue;
             
             $idsToDelete[] = $doc['id'];
             

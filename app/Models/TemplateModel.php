@@ -18,27 +18,42 @@ class TemplateModel extends Model
 {
     protected $table         = 'templates';
     protected $primaryKey    = 'id';
-    protected $allowedFields = ['name', 'slug', 'description', 'category_id', 'directorate_id', 'file_path', 'file_name', 'uploaded_by', 'is_active'];
+    protected $allowedFields = ['name', 'slug', 'description', 'category_id', 'directorate_id', 'division_id', 'file_path', 'file_name', 'uploaded_by', 'is_active'];
     protected $useTimestamps = true;
 
     /**
      * Ambil semua template yang aktif (is_active = 1).
      * Join ke tabel users untuk dapat nama admin yang upload.
      */
-    public function getActiveTemplates(?int $directorateId = null): array
+    public function getActiveTemplates(?int $directorateId = null, ?int $divisionId = null): array
     {
-        $query = $this->select('templates.*, users.name as uploader_name, template_categories.name as category_name, directorates.name as directorate_name')
+        $query = $this->select('templates.*, users.name as uploader_name, template_categories.name as category_name, directorates.name as directorate_name, divisions.name as division_name')
                     ->join('users', 'users.id = templates.uploaded_by')
                     ->join('template_categories', 'template_categories.id = templates.category_id', 'left')
                     ->join('directorates', 'directorates.id = templates.directorate_id', 'left')
+                    ->join('divisions', 'divisions.id = templates.division_id', 'left')
                     ->where('templates.is_active', 1);
 
         if ($directorateId !== null) {
-            // Filter: Hanya tampilkan template milik directorate_id user ATAU template global (directorate_id IS NULL)
-            $query->groupStart()
-                  ->where('templates.directorate_id', $directorateId)
-                  ->orWhere('templates.directorate_id', null)
-                  ->groupEnd();
+            if ($divisionId !== null) {
+                // User Divisi: Bisa lihat template global, template direktorat (tanpa divisi khusus), atau template divisinya sendiri
+                $query->groupStart()
+                      ->where('templates.directorate_id', null) // Global
+                      ->orGroupStart()
+                          ->where('templates.directorate_id', $directorateId)
+                          ->groupStart()
+                              ->where('templates.division_id', null)
+                              ->orWhere('templates.division_id', $divisionId)
+                          ->groupEnd()
+                      ->groupEnd()
+                      ->groupEnd();
+            } else {
+                // Admin Direktorat: Bisa lihat template global ATAU template di dalam direktoratnya (semua divisi)
+                $query->groupStart()
+                      ->where('templates.directorate_id', $directorateId)
+                      ->orWhere('templates.directorate_id', null)
+                      ->groupEnd();
+            }
         }
 
         return $query->orderBy('templates.created_at', 'DESC')->findAll();

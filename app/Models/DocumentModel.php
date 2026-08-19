@@ -16,28 +16,85 @@ class DocumentModel extends Model
 {
     protected $table         = 'documents';
     protected $primaryKey    = 'id';
-    protected $allowedFields = ['template_id', 'user_id', 'data', 'file_path'];
+    protected $allowedFields = ['template_id', 'user_id', 'directorate_id', 'division_id', 'parent_document_id', 'data', 'file_path'];
     protected $useTimestamps = true;
     protected $createdField  = 'created_at';
     protected $updatedField  = ''; // tabel documents tidak punya kolom updated_at
 
     /**
      * Ambil riwayat dokumen dengan info template dan user.
-     * Admin bisa lihat semua, user biasa hanya lihat miliknya.
+     * Filter berdasarkan scope:
+     * - Superadmin: Semua
+     * - Admin Direktorat: directorate_id
+     * - User Divisi: directorate_id & division_id
      */
-    public function getHistory(?int $userId = null, int $limit = 50): array
-    {
-        $builder = $this->select('documents.*, templates.name as template_name, users.name as user_name')
-                        ->join('templates', 'templates.id = documents.template_id')
-                        ->join('users', 'users.id = documents.user_id')
+    /**
+     * Ambil riwayat dokumen dengan info template, user, dan parent document (revisi).
+     */
+    public function getHistory(
+        ?int $directorateId = null, 
+        ?int $divisionId = null, 
+        ?int $currentUserId = null,
+        ?string $scopeFilter = null,
+        ?string $search = null,
+        ?string $startDate = null,
+        ?string $endDate = null,
+        int $limit = 200
+    ): array {
+        $builder = $this->select('documents.*, templates.name as template_name, templates.slug as template_slug, templates.id as template_id, users.name as user_name, directorates.name as directorate_name, divisions.name as division_name, parent_docs.id as parent_id, parent_templates.name as parent_template_name')
+                        ->join('templates', 'templates.id = documents.template_id', 'left')
+                        ->join('users', 'users.id = documents.user_id', 'left')
+                        ->join('directorates', 'directorates.id = documents.directorate_id', 'left')
+                        ->join('divisions', 'divisions.id = documents.division_id', 'left')
+                        ->join('documents as parent_docs', 'parent_docs.id = documents.parent_document_id', 'left')
+                        ->join('templates as parent_templates', 'parent_templates.id = parent_docs.template_id', 'left')
                         ->orderBy('documents.created_at', 'DESC')
                         ->limit($limit);
 
-        // Jika userId diberikan, filter hanya milik user tersebut
-        if ($userId !== null) {
-            $builder->where('documents.user_id', $userId);
+        // Filter Scope Tab
+        if ($scopeFilter === 'own' && $currentUserId !== null) {
+            $builder->where('documents.user_id', $currentUserId);
+        } elseif ($scopeFilter === 'division' && $divisionId !== null) {
+            $builder->where('documents.division_id', $divisionId);
+        } elseif ($scopeFilter === 'directorate' && $directorateId !== null) {
+            $builder->where('documents.directorate_id', $directorateId);
+        } else {
+            // Default Scope ScopedFilter RBAC
+            if ($directorateId !== null) {
+                $builder->where('documents.directorate_id', $directorateId);
+            }
+            if ($divisionId !== null) {
+                $builder->where('documents.division_id', $divisionId);
+            }
+        }
+
+        // Filter Search Keyword
+        if (!empty($search)) {
+            $builder->groupStart()
+                    ->like('templates.name', $search)
+                    ->orLike('users.name', $search)
+                    ->groupEnd();
+        }
+
+        // Filter Rentang Tanggal
+        if (!empty($startDate)) {
+            $builder->where('DATE(documents.created_at) >=', $startDate);
+        }
+        if (!empty($endDate)) {
+            $builder->where('DATE(documents.created_at) <=', $endDate);
         }
 
         return $builder->findAll();
+    }
+
+    /**
+     * Ambil detail dokumen beserta slug template untuk keperluan revisi
+     */
+    public function getDocumentForRevision(int $documentId): ?array
+    {
+        return $this->select('documents.*, templates.slug as template_slug, templates.name as template_name, templates.id as template_id')
+                    ->join('templates', 'templates.id = documents.template_id', 'left')
+                    ->where('documents.id', $documentId)
+                    ->first();
     }
 }

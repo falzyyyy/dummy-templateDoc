@@ -226,7 +226,7 @@ class DocxGenerator
                     $list->parentNode->removeChild($list);
                 }
 
-                // --- B. PARSE PARAGRAPH INDENTS ---
+                // --- B. PARSE PARAGRAPH INDENTS & LINE HEIGHT ---
                 $paragraphs = $xpath->query('//p[contains(@style, "margin-left")] | //h1[contains(@style, "margin-left")] | //h2[contains(@style, "margin-left")] | //h3[contains(@style, "margin-left")]');
                 foreach ($paragraphs as $p) {
                     if ($p instanceof \DOMElement) {
@@ -235,6 +235,24 @@ class DocxGenerator
                             $px = (float)$matches[1];
                             $pt = $px * 0.75; // konversi px ke pt
                             $style = preg_replace('/margin-left:\s*[0-9.]+px/', 'margin-left: ' . $pt . 'pt', $style);
+                            $p->setAttribute('style', $style);
+                        }
+                    }
+                }
+
+                $pLineHeights = $xpath->query('//p[contains(@style, "line-height")] | //h1[contains(@style, "line-height")] | //h2[contains(@style, "line-height")] | //h3[contains(@style, "line-height")] | //div[contains(@style, "line-height")]');
+                foreach ($pLineHeights as $p) {
+                    if ($p instanceof \DOMElement) {
+                        $style = $p->getAttribute('style');
+                        if (preg_match('/line-height\s*:\s*([0-9.]+)(px|pt|%)?/i', $style, $matches)) {
+                            $lhVal = (float)$matches[1];
+                            $unit = $matches[2] ?? '';
+                            if ($unit === '%') {
+                                $lhVal = $lhVal / 100;
+                            } elseif ($unit === 'px' || $unit === 'pt') {
+                                $lhVal = $lhVal / 14; 
+                            }
+                            $style = preg_replace('/line-height\s*:\s*[^;"]+/i', 'line-height: ' . number_format($lhVal, 2, '.', ''), $style);
                             $p->setAttribute('style', $style);
                         }
                     }

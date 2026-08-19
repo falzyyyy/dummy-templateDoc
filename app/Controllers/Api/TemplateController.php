@@ -39,14 +39,11 @@ class TemplateController extends BaseController
      */
     public function index()
     {
-        // Ambil data user yang sedang login dari UserModel (karena JWT token disimpan di request->userId)
-        $userModel = new \App\Models\UserModel();
-        $user = $userModel->find($this->request->{'userId'});
-        
-        // Super Admin = null, lihat semua. Admin/User Biasa = id direktoratnya
-        $directorateId = ($user && $user['directorate_id']) ? $user['directorate_id'] : null;
+        // Gunakan variable yang diinject oleh ScopeToDirectorateFilter
+        $directorateId = $_SERVER['SCOPED_DIRECTORATE_ID'] ?? null;
+        $divisionId    = $_SERVER['SCOPED_DIVISION_ID'] ?? null;
 
-        $templates = $this->templateModel->getActiveTemplates($directorateId);
+        $templates = $this->templateModel->getActiveTemplates($directorateId, $divisionId);
 
         // Tambahkan jumlah field ke setiap template
         foreach ($templates as &$template) {
@@ -108,8 +105,10 @@ class TemplateController extends BaseController
         $name          = $this->request->getPost('name') ?: $file->getClientName();
         $description   = $this->request->getPost('description') ?: '';
         $categoryId    = $this->request->getPost('category_id') ?? 1;
-        $directorateId = $this->request->getPost('directorate_id');
-        if ($directorateId === 'null' || empty($directorateId)) $directorateId = null;
+        
+        // AUTO-TAGGING berdasarkan identitas JWT
+        $directorateId = $_SERVER['SCOPED_DIRECTORATE_ID'] ?? null;
+        $divisionId    = $_SERVER['SCOPED_DIVISION_ID'] ?? null;
 
         // Simpan file ke folder uploads/templates/
         $newName = $file->getRandomName();
@@ -140,9 +139,11 @@ class TemplateController extends BaseController
             'description'    => $description,
             'category_id'    => $categoryId,
             'directorate_id' => $directorateId,
+            'division_id'    => $divisionId,
             'file_path'      => 'uploads/templates/' . $newName,
             'file_name'      => $file->getClientName(),
             'uploaded_by'    => $this->request->{'userId'},
+            'is_active'      => 1
         ]);
 
         // Simpan fields (placeholder) ke database

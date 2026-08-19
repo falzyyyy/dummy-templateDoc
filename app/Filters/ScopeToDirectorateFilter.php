@@ -21,17 +21,21 @@ class ScopeToDirectorateFilter implements FilterInterface
                 $key = env('jwt.secret', 'default_secret_key');
                 $decoded = JWT::decode($token, new Key($key, 'HS256'));
                 
-                // Cek apakah rolenya admin_direktorat
-                if (isset($decoded->role) && $decoded->role === 'admin_direktorat') {
+                // Cek apakah rolenya admin_direktorat atau user
+                if (isset($decoded->role) && in_array($decoded->role, ['admin_direktorat', 'user'])) {
                     $directorateId = $decoded->directorate_id ?? null;
                     if (!$directorateId) {
-                        return \Config\Services::response()->setJSON(['error' => 'Admin tidak terikat ke direktorat manapun.'])->setStatusCode(403);
+                        return \Config\Services::response()->setJSON(['error' => 'Akun tidak terikat ke direktorat manapun.'])->setStatusCode(403);
                     }
-                    
-                    // Simpan data directorate_id ini di global scope atau request
-                    // Karena CI4 request GET/POST tidak bisa diubah langsung secara elegan,
-                    // kita akan menggunakan $_SERVER variables sebagai cara meneruskan konteks ke Controller
                     $_SERVER['SCOPED_DIRECTORATE_ID'] = $directorateId;
+
+                    if ($decoded->role === 'user') {
+                        $divisionId = $decoded->division_id ?? null;
+                        if (!$divisionId) {
+                            return \Config\Services::response()->setJSON(['error' => 'Akun user tidak terikat ke divisi manapun.'])->setStatusCode(403);
+                        }
+                        $_SERVER['SCOPED_DIVISION_ID'] = $divisionId;
+                    }
                 }
             } catch (\Exception $e) {
                 // Biarkan auth filter yang mengurus validasi JWT utama

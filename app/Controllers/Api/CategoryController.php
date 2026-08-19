@@ -23,7 +23,7 @@ class CategoryController extends ResourceController
 
     public function create()
     {
-        if ($this->request->{'userRole'} !== 'admin') {
+        if (!in_array($this->request->{'userRole'}, ['admin', 'superadmin', 'admin_direktorat'])) {
             return $this->response->setStatusCode(403)->setJSON(['error' => 'Akses ditolak.']);
         }
         
@@ -36,7 +36,7 @@ class CategoryController extends ResourceController
 
     public function update($id = null)
     {
-        if ($this->request->{'userRole'} !== 'admin') return $this->response->setStatusCode(403);
+        if (!in_array($this->request->{'userRole'}, ['admin', 'superadmin', 'admin_direktorat'])) return $this->response->setStatusCode(403);
         $name = $this->request->getJSON()->name ?? '';
         if (empty(trim($name))) return $this->response->setStatusCode(400)->setJSON(['error' => 'Nama kategori wajib diisi.']);
         
@@ -46,7 +46,7 @@ class CategoryController extends ResourceController
 
     public function delete($id = null)
     {
-        if ($this->request->{'userRole'} !== 'admin') return $this->response->setStatusCode(403);
+        if (!in_array($this->request->{'userRole'}, ['admin', 'superadmin', 'admin_direktorat'])) return $this->response->setStatusCode(403);
         if ($id == 1) return $this->response->setStatusCode(400)->setJSON(['error' => 'Kategori default tidak bisa dihapus']);
         
         // Pindahkan template ke kategori 1

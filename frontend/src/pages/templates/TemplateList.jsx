@@ -97,7 +97,11 @@ export default function TemplateList() {
                         {t.field_count} Placeholder
                       </span>
                       <span className="text-[10px] text-purple-600 font-medium bg-purple-50 px-2 py-0.5 rounded-full inline-block border border-purple-100">
-                        {t.directorate_name || 'Global'}
+                        {t.directorate_name ? (
+                          <>{t.directorate_name} &gt; {t.division_name || 'Semua Divisi'}</>
+                        ) : (
+                          'Global'
+                        )}
                       </span>
                     </div>
                   </div>

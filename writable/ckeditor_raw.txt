@@ -1,0 +1,12 @@
+<p style="text-align:center;"><strong>TEST NAMA PERUSAHAAN</strong></p>
+---
+<p style="text-align:center;"><strong>TEST JUDUL KONTRAK</strong></p>
+---
+<p><strong>TEST ALAMAT PERUSAHAAN</strong></p>
+---
+<p style="text-align:center;"><strong>TEST NAMA PERUSAHAAN</strong></p>
+---
+<p style="text-align:center;"><strong>TEST JUDUL KONTRAK</strong></p>
+---
+<p><strong>TEST ALAMAT PERUSAHAAN</strong></p>
+---

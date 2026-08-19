@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../api/axios';
 import { useAlert } from '../../context/AlertContext';
 import { CKEditor } from '@ckeditor/ckeditor5-react';
@@ -38,17 +38,26 @@ import {
     ImageResize,
     Base64UploadAdapter,
     PasteFromOffice,
-    SelectAll
+    SelectAll,
+    GeneralHtmlSupport
 } from 'ckeditor5';
 import 'ckeditor5/ckeditor5.css';
 
 export default function FillTemplate() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const revisiDariId = searchParams.get('revisi_dari');
+  
+  const draftKey = revisiDariId 
+    ? `docgen_draft_rev_${revisiDariId}` 
+    : `docgen_draft_tpl_${slug}`;
+
   const { showAlert } = useAlert();
   const [template, setTemplate] = useState(null);
   const [fields, setFields] = useState([]);
   const [formData, setFormData] = useState({});
+  const [revisionInfo, setRevisionInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [errors, setErrors] = useState({});
@@ -57,17 +66,83 @@ export default function FillTemplate() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
   const [hasPreview, setHasPreview] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
 
   useEffect(() => {
+    setIsInitialized(false);
+    setHasRestoredDraft(false);
+
     api.get(`/templates/${slug}`).then(async res => {
       const t = res.data.template;
       setTemplate(t);
       setFields(t.fields || []);
       const initial = {};
       (t.fields || []).forEach(f => { initial[f.field_key] = f.default_value || ''; });
+      
+      if (revisiDariId) {
+        try {
+          const revRes = await api.get(`/documents/${revisiDariId}/revision-data`);
+          if (revRes.data && revRes.data.data) {
+            setRevisionInfo(revRes.data);
+            Object.assign(initial, revRes.data.data);
+          }
+        } catch (err) {
+          console.error('Gagal memuat data revisi:', err);
+          showAlert('warning', 'Perhatian', 'Gagal memuat data revisi lama.');
+        }
+      }
+
+      // Cek draft tersimpan di localStorage
+      try {
+        const savedDraft = localStorage.getItem(draftKey);
+        if (savedDraft) {
+          const parsedDraft = JSON.parse(savedDraft);
+          if (parsedDraft && typeof parsedDraft === 'object') {
+            Object.assign(initial, parsedDraft);
+            setHasRestoredDraft(true);
+          }
+        }
+      } catch (e) {
+        console.error('Error loading draft from localStorage:', e);
+      }
+
       setFormData(initial);
+      setIsInitialized(true);
     }).catch(console.error).finally(() => setLoading(false));
-  }, [slug]);
+  }, [slug, revisiDariId, draftKey]);
+
+  // Auto-save draft ke localStorage setiap kali formData berubah
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      // Jika ada setidaknya 1 isi field, simpan. Jika kosong semua, hapus draf.
+      const hasContent = Object.values(formData).some(val => val !== '' && val !== null && val !== undefined);
+      if (hasContent) {
+        localStorage.setItem(draftKey, JSON.stringify(formData));
+      } else {
+        localStorage.removeItem(draftKey);
+      }
+    } catch (e) {
+      console.error('Gagal menyimpan draf ke localStorage:', e);
+    }
+  }, [formData, draftKey, isInitialized]);
+
+  const handleResetForm = () => {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch (e) {}
+    
+    // Kosongkan seluruh isian field menjadi string kosong
+    const emptyData = {};
+    fields.forEach(f => {
+      emptyData[f.field_key] = '';
+    });
+
+    setFormData(emptyData);
+    setHasRestoredDraft(false);
+    showAlert('info', 'Formulir Dikosongkan', 'Seluruh isi formulir dan draf telah dikosongkan.');
+  };
 
   const handleMuatPreview = async () => {
     setPreviewLoading(true);
@@ -126,7 +201,18 @@ export default function FillTemplate() {
   const handleGenerate = async (format = 'docx') => {
     setGenerating(format); setErrors({}); setSuccess(null);
     try {
-      const res = await api.post(`/documents/generate/${slug}`, { data: formData, format });
+      const res = await api.post(`/documents/generate/${slug}`, { 
+        data: formData, 
+        format,
+        parent_document_id: revisiDariId ? parseInt(revisiDariId, 10) : null
+      });
+
+      // Clear draft upon successful generation
+      try {
+        localStorage.removeItem(draftKey);
+        setHasRestoredDraft(false);
+      } catch (e) {}
+
       setSuccess(res.data);
       // Auto download
       const docId = res.data.document.id;
@@ -173,6 +259,43 @@ export default function FillTemplate() {
       case 'richtext':
         return (
           <div className={`prose-sm ${hasErr ? 'border border-red-300 rounded' : ''}`}>
+            <div className="flex flex-wrap items-center gap-2 mb-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600">
+              <span className="font-semibold text-slate-700 flex items-center gap-1">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
+                Atur Spasi Baris:
+              </span>
+              {[
+                { label: '1.0 (Rapat)', value: '1.0' },
+                { label: '1.15 (Standar)', value: '1.15' },
+                { label: '1.5 (Sedang)', value: '1.5' },
+                { label: '2.0 (Ganda)', value: '2.0' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    let updatedVal = val || '';
+                    if (!updatedVal || !updatedVal.includes('<p')) {
+                      updatedVal = `<p style="line-height: ${opt.value};">${updatedVal}</p>`;
+                    } else {
+                      updatedVal = updatedVal.replace(/<p\b([^>]*)>/gi, (m, attrs) => {
+                        if (attrs.includes('line-height:')) {
+                          return `<p${attrs.replace(/line-height\s*:\s*[^;"]+/i, `line-height: ${opt.value}`)}>`;
+                        } else if (attrs.includes('style="')) {
+                          return `<p${attrs.replace('style="', `style="line-height: ${opt.value}; `)}>`;
+                        } else {
+                          return `<p${attrs} style="line-height: ${opt.value};">`;
+                        }
+                      });
+                    }
+                    handleChange(field.field_key, updatedVal);
+                  }}
+                  className="px-2.5 py-1 rounded bg-white hover:bg-[#008f51]/10 hover:text-[#008f51] hover:border-[#008f51]/30 font-medium border border-slate-200 transition-colors shadow-xs"
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
             <CKEditor
               editor={ClassicEditor}
               data={val}
@@ -185,8 +308,20 @@ export default function FillTemplate() {
                     Subscript, Superscript, Code, Highlight, Indent, IndentBlock, 
                     ListProperties, RemoveFormat, Link, Image, ImageInsert, 
                     ImageToolbar, ImageCaption, ImageStyle, ImageResize, 
-                    Base64UploadAdapter, PasteFromOffice, SelectAll
+                    Base64UploadAdapter, PasteFromOffice, SelectAll, GeneralHtmlSupport
                 ],
+                htmlSupport: {
+                    allow: [
+                        {
+                            name: /^(p|h1|h2|h3|h4|div|span|td|th)$/,
+                            styles: {
+                                'line-height': true,
+                                'margin-left': true,
+                                'margin-bottom': true
+                            }
+                        }
+                    ]
+                },
                 toolbar: [
                     'heading', '|',
                     'fontFamily', 'fontSize', '|',
@@ -274,6 +409,41 @@ export default function FillTemplate() {
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{template.name}</h1>
         <p className="text-sm text-slate-500 mt-1">{template.description || 'Isi formulir di bawah ini untuk menghasilkan dokumen.'}</p>
       </div>
+
+      {revisionInfo && (
+        <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-between gap-3 text-blue-900 shadow-sm animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 flex-shrink-0">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-blue-900">Modus Revisi Dokumen #{revisionInfo.document_id}</p>
+              <p className="text-xs text-blue-700 mt-0.5">Formulir telah diisi otomatis dari isian sebelumnya. Silakan perbarui data yang diperlukan.</p>
+            </div>
+          </div>
+          <span className="text-xs font-semibold px-3 py-1 bg-blue-200/80 text-blue-800 rounded-full flex-shrink-0">Mode Revisi</span>
+        </div>
+      )}
+
+      {hasRestoredDraft && (
+        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-3 text-amber-900 shadow-sm animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 flex-shrink-0">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-amber-900">Draf Isian Dipulihkan</p>
+              <p className="text-xs text-amber-700 mt-0.5">Isian sebelumnya yang belum sempat dicetak berhasil dipulihkan otomatis dari browser Anda.</p>
+            </div>
+          </div>
+          <button
+            onClick={handleResetForm}
+            className="text-xs font-semibold px-3 py-1.5 bg-amber-200/80 hover:bg-amber-300/80 text-amber-900 rounded-lg transition-colors flex-shrink-0"
+          >
+            Reset Form
+          </button>
+        </div>
+      )}
 
       {success && (
         <div className="p-4 rounded-xl bg-green-50 border border-green-200 flex items-start gap-3">

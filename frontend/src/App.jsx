@@ -20,11 +20,12 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
-function AdminRoute({ children }) {
-  const { isAdmin, loading } = useAuth();
+function AdminRoute({ children, permission }) {
+  const { isAdmin, hasPermission, loading } = useAuth();
   if (loading) return null;
-  if (!isAdmin) return <Navigate to="/" />;
-  return children;
+  if (isAdmin) return children;
+  if (permission && hasPermission(permission)) return children;
+  return <Navigate to="/" />;
 }
 
 export default function App() {
@@ -34,14 +35,14 @@ export default function App() {
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
         <Route path="templates" element={<TemplateList />} />
-        <Route path="templates/upload" element={<AdminRoute><UploadTemplate /></AdminRoute>} />
-        <Route path="templates/:id/edit" element={<AdminRoute><EditFields /></AdminRoute>} />
+        <Route path="templates/upload" element={<AdminRoute permission="upload_template"><UploadTemplate /></AdminRoute>} />
+        <Route path="templates/:id/edit" element={<AdminRoute permission="upload_template"><EditFields /></AdminRoute>} />
         <Route path="templates/:slug/fill" element={<FillTemplate />} />
         <Route path="history" element={<History />} />
-        <Route path="categories" element={<AdminRoute><CategoryList /></AdminRoute>} />
-        <Route path="directorates" element={<AdminRoute><DirectorateList /></AdminRoute>} />
-        <Route path="divisions" element={<AdminRoute><DivisionList /></AdminRoute>} />
-        <Route path="users" element={<AdminRoute><UserManagement /></AdminRoute>} />
+        <Route path="categories" element={<AdminRoute permission="manage_categories"><CategoryList /></AdminRoute>} />
+        <Route path="directorates" element={<AdminRoute permission="manage_directorates"><DirectorateList /></AdminRoute>} />
+        <Route path="divisions" element={<AdminRoute permission="manage_divisions"><DivisionList /></AdminRoute>} />
+        <Route path="users" element={<AdminRoute permission="manage_users"><UserManagement /></AdminRoute>} />
       </Route>
     </Routes>
   );

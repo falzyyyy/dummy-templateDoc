@@ -40,10 +40,21 @@ class AdminRoleFilter implements FilterInterface
         }
 
         // Cek role: harus admin_direktorat, superadmin, atau admin (legacy)
-        if (!in_array($decoded->role, ['superadmin', 'admin_direktorat', 'admin'])) {
+        $isAdmin = in_array($decoded->role, ['superadmin', 'admin_direktorat', 'admin']);
+        $hasPermission = false;
+
+        // Jika ada argumen permission (contoh: ['filter' => 'admin:upload_template'])
+        if (!empty($arguments) && isset($arguments[0])) {
+            $requiredPermission = $arguments[0];
+            if (isset($decoded->permissions) && in_array($requiredPermission, (array) $decoded->permissions)) {
+                $hasPermission = true;
+            }
+        }
+
+        if (!$isAdmin && !$hasPermission) {
             return service('response')
                 ->setStatusCode(403)
-                ->setJSON(['error' => 'Akses ditolak. Hanya admin yang bisa mengakses fitur ini.']);
+                ->setJSON(['error' => 'Akses ditolak. Anda tidak memiliki izin untuk fitur ini.']);
         }
 
         $request->{'userId'}    = $decoded->uid;

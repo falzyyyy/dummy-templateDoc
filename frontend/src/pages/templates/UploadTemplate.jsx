@@ -153,7 +153,7 @@ export default function UploadTemplate() {
 
         <div className="grid grid-cols-1 gap-6">
           {/* Name & Category */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">Nama Template <span className="text-red-500">*</span></label>
               <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="input-field" placeholder="Contoh: Surat Tugas Karyawan" required />
@@ -162,13 +162,6 @@ export default function UploadTemplate() {
               <label className="block text-sm font-semibold text-slate-700 mb-2">Kategori Template</label>
               <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input-field">
                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Direktorat</label>
-              <select value={directorateId} onChange={(e) => setDirectorateId(e.target.value)} className="input-field">
-                <option value="">-- Template Global (Semua) --</option>
-                {directorates.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </div>
           </div>
