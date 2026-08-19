@@ -1,4 +1,0 @@
-OldTarget: 1504, NewTarget: 1530, OldSelf: 1503, NewSelf: 1529
-SUCCESS update self 1529 with target 1530
-OldTarget: 1513, NewTarget: 1539, OldSelf: 1512, NewSelf: 1538
-SUCCESS update self 1538 with target 1539

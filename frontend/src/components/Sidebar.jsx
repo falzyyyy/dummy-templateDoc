@@ -98,6 +98,8 @@ const navItems = [
   },
 ];
 
+import logoPtpn from '../../frontend/public/logo-ptpn.jpg';
+
 export default function Sidebar({ isOpen, onClose }) {
   const { user, logout, hasPermission, isAdmin, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
@@ -123,12 +125,15 @@ export default function Sidebar({ isOpen, onClose }) {
       {/* Logo Area */}
       <div className="p-6 border-b border-slate-100 flex items-center justify-between lg:justify-start">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-[#008f51] flex items-center justify-center text-white font-bold text-lg shadow-sm">
-            P
-          </div>
-          <div>
-            <h1 className="text-base font-bold text-slate-800 tracking-tight">DocGen</h1>
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">PT. Perkebunan Nusantara</p>
+          <img 
+            src={logoPtpn} 
+            alt="Logo PTPN" 
+            className="h-11 w-auto object-contain"
+            style={{ filter: 'brightness(1.05) contrast(1.05)' }}
+          />
+          <div className="border-l-2 border-slate-200 pl-3">
+            <h1 className="text-sm font-bold text-slate-800 tracking-tight leading-tight">DocGen</h1>
+            <p className="text-[10px] font-semibold text-[#008f51] uppercase tracking-wider">Sistem Internal</p>
           </div>
         </div>
         <button className="lg:hidden p-1 text-slate-400 hover:text-slate-600" onClick={onClose}>

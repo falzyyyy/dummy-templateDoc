@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
+import logoPtpn from '../../frontend/public/logo-ptpn.jpg';
+
 export default function Login() {
   const { login, user } = useAuth();
   const navigate = useNavigate();
@@ -10,7 +12,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  if (user) return <Navigate to="/" />;
+  if (user) return <Navigate to="/" replace />;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,11 +35,16 @@ export default function Login() {
       
       <div className="w-full max-w-[400px] z-10">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-[#008f51] flex items-center justify-center text-white text-2xl font-bold shadow-md shadow-[#008f51]/20">
-            P
+          <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 inline-block mb-5">
+            <img 
+              src={logoPtpn} 
+              alt="Logo PTPN" 
+              className="h-20 w-auto object-contain"
+              style={{ filter: 'brightness(1.05)' }}
+            />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">DocGen PTPN</h1>
-          <p className="text-sm text-slate-500 mt-1">Sistem Generate Dokumen Internal</p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Sistem DocGen</h1>
+          <p className="text-sm text-slate-500 mt-1">Generator Dokumen Internal</p>
         </div>
 
         <div className="card p-8 shadow-lg shadow-slate-200/50">

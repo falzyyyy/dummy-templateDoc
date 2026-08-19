@@ -16,7 +16,7 @@ import UserManagement from './pages/users/UserManagement';
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="text-[var(--text-muted)]">Memuat...</div></div>;
-  if (!user) return <Navigate to="/login" />;
+  if (!user) return <Navigate to="/login" replace />;
   return children;
 }
 
@@ -25,7 +25,7 @@ function AdminRoute({ children, permission }) {
   if (loading) return null;
   if (isAdmin) return children;
   if (permission && hasPermission(permission)) return children;
-  return <Navigate to="/" />;
+  return <Navigate to="/" replace />;
 }
 
 export default function App() {

@@ -12,7 +12,6 @@
     "require": {
         "php": "^8.2",
         "codeigniter4/framework": "^4.7",
-        "dompdf/dompdf": "^3.1",
         "firebase/php-jwt": "^7.1",
         "phpoffice/phpword": "^1.4"
     },
