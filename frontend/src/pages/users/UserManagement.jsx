@@ -155,9 +155,25 @@ export default function UserManagement() {
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1.5">Role Pengguna</label>
               <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value, directorate_id: (e.target.value === 'superadmin') ? '' : p.directorate_id }))} className="input-field disabled:bg-slate-100 disabled:text-slate-500" disabled={isAdminDirektorat}>
-                <option value="user">User Biasa</option>
-                {isSuperAdmin && <option value="admin_direktorat">Admin Direktorat</option>}
-                {isSuperAdmin && (!editId || form.role === 'superadmin') && <option value="superadmin">Super Admin</option>}
+                <option value="superadmin">Super Admin</option>
+                <option value="admin">Admin</option>
+                <option value="admin_dspi">Admin DSPI</option>
+                <option value="admin_dspn">Admin DSPN</option>
+                <option value="admin_dsmk">Admin DSMK</option>
+                <option value="admin_dppn">Admin DPPN</option>
+                <option value="admin_dtdi">Admin DTDI</option>
+                <option value="admin_dhkm">Admin DHKM</option>
+                <option value="admin_dmas">Admin DMAS</option>
+                <option value="admin_dksr">Admin DKSR</option>
+                <option value="admin_datn">Admin DTAN</option>
+                <option value="admin_pmkh">Admin PMKH</option>
+                <option value="admin_dapn">Admin DAPN</option>
+                <option value="admin_dksa">Admin DKSA</option>
+                <option value="admin_dimr">Admin DIMR</option>
+                <option value="admin_dsps">Admin DSPS</option>
+                <option value="admin_dops">Admin DOPS</option>
+                <option value="admin_dpdu">Admin DPDU</option>
+                <option value="user">User</option>
               </select>
             </div>
             <div>

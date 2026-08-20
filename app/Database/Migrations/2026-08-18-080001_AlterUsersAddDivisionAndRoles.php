@@ -13,23 +13,12 @@ class AlterUsersAddDivisionAndRoles extends Migration
         // Enum diubah. Tapi karena MySQL enum perlu definisi lengkap, kita berikan lengkap.
         // Kita simpan 'admin' agar tidak error kalau ada data lama, lalu update, lalu hapus 'admin'.
         // Cara paling aman: Ubah ENUM jadi mencakup semua.
-        
-        $this->forge->modifyColumn('users', [
-            'role' => [
-                'type'       => 'ENUM',
-                'constraint' => ['superadmin', 'admin_direktorat', 'admin', 'user'],
-                'default'    => 'user',
-            ],
-        ]);
-
-        // Mapping 'admin' lama ke 'superadmin'
-        $this->db->query("UPDATE users SET role = 'superadmin' WHERE role = 'admin'");
 
         // Modifikasi lagi untuk membuang 'admin' dari ENUM
         $this->forge->modifyColumn('users', [
             'role' => [
                 'type'       => 'ENUM',
-                'constraint' => ['superadmin', 'admin_direktorat', 'user'],
+                'constraint' => ['superadmin','admin','admin_dspi','admin_dspn','admin_dsmk','admin_dppn','admin_dtdi','admin_dhkm','admin_dmas','admin_dksr','admin_datn','admin_pmkh','admin_dapn','admin_dksa','admin_dimr','admin_dsps','admin_dops','admin_dpdu','user'],
                 'default'    => 'user',
             ],
         ]);

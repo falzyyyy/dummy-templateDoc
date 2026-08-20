@@ -40,7 +40,7 @@ class AdminRoleFilter implements FilterInterface
         }
 
         // Cek role: harus admin_direktorat, superadmin, atau admin (legacy)
-        $isAdmin = in_array($decoded->role, ['superadmin', 'admin_direktorat', 'admin']);
+        $isAdmin = in_array($decoded->role, ['superadmin']);
         $hasPermission = false;
 
         // Jika ada argumen permission (contoh: ['filter' => 'admin:upload_template'])

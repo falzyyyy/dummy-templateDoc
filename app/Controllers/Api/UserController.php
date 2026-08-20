@@ -61,7 +61,7 @@ class UserController extends BaseController
             'name'     => 'required|min_length[2]',
             'email'    => 'required|valid_email|is_unique[users.email]',
             'password' => 'required|min_length[6]',
-            'role'     => 'required|in_list[superadmin,admin_direktorat,user]',
+            'role'     => 'required|in_list[superadmin,admin,admin_dspi,admin_dspn,admin_dsmk,admin_dppn,admin_dtdi,admin_dhkm,admin_dmas,admin_dksr,admin_datn,admin_pmkh,admin_dapn,admin_dksa,admin_dimr,admin_dsps,admin_dops,admin_dpdu,user]',
         ];
 
         if (!$this->validateData($json, $rules)) {
