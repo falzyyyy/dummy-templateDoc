@@ -14,16 +14,12 @@ import {
     Paragraph,
     Heading,
     List,
-    BlockQuote,
     Alignment,
     Table,
     TableToolbar,
     TableProperties,
     TableCellProperties,
     Undo,
-    Subscript,
-    Superscript,
-    Code,
     Highlight,
     Indent,
     IndentBlock,
@@ -259,6 +255,26 @@ export default function FillTemplate() {
       case 'richtext':
         return (
           <div className={`prose-sm ${hasErr ? 'border border-red-300 rounded' : ''}`}>
+            {/* 1. Tambahkan Custom Style Khusus List di Sini */}
+            <style>{`
+              .ck-content ul {
+                    list-style-type: disc !important;
+                    padding-left: 1.5rem !important;
+                    margin-top: 0.5rem !important;
+                    margin-bottom: 0.5rem !important;
+                }
+
+                .ck-content ol {
+                    list-style-type: decimal !important;
+                    padding-left: 1.5rem !important;
+                    margin-top: 0.5rem !important;
+                    margin-bottom: 0.5rem !important;
+                }
+
+                .ck-content li {
+                    display: list-item !important;
+                }
+            `}</style>
             <div className="flex flex-wrap items-center gap-2 mb-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600">
               <span className="font-semibold text-slate-700 flex items-center gap-1">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
@@ -303,13 +319,20 @@ export default function FillTemplate() {
                 licenseKey: 'GPL',
                 plugins: [
                     Essentials, Bold, Italic, Underline, Strikethrough, Font, Paragraph, 
-                    Heading, List, BlockQuote, Alignment, Table, TableToolbar, 
+                    Heading, List, Alignment, Table, TableToolbar, 
                     TableProperties, TableCellProperties, Undo,
-                    Subscript, Superscript, Code, Highlight, Indent, IndentBlock, 
+                    Highlight, Indent, IndentBlock, 
                     ListProperties, RemoveFormat, Link, Image, ImageInsert, 
                     ImageToolbar, ImageCaption, ImageStyle, ImageResize, 
                     Base64UploadAdapter, PasteFromOffice, SelectAll, GeneralHtmlSupport
                 ],
+                list: {
+                    properties: {
+                      styles: true,      // Mengaktifkan pilihan: decimal-leading-zero, lower-alpha, upper-roman, dll.
+                      startIndex: true,  // Mengaktifkan fitur mulai dari angka tertentu
+                      reversed: true     // Mengaktifkan fitur penomoran terbalik
+                    }
+                },
                 htmlSupport: {
                     allow: [
                         {
@@ -319,15 +342,20 @@ export default function FillTemplate() {
                                 'margin-left': true,
                                 'margin-bottom': true
                             }
+                        },
+                        {
+                          name: /^(ol|ul|li)$/,
+                          attributes: true, // Mengizinkan atribut type="a", type="I", type="1"
+                          styles: true      // Mengizinkan style="list-style-type: lower-roman;", dll.
                         }
                     ]
                 },
                 toolbar: [
                     'heading', '|',
                     'fontFamily', 'fontSize', '|',
-                    'bold', 'italic', 'underline', 'strikethrough', 'subscript', 'superscript', 'code', '|',
+                    'bold', 'italic', 'underline', 'strikethrough', '|',
                     'alignment', 'outdent', 'indent', '|',
-                    'bulletedList', 'numberedList', 'blockQuote', '|',
+                    'bulletedList', 'numberedList', '|',
                     'link', 'insertImage', 'insertTable', 'tableProperties', '|',
                     'removeFormat', 'selectAll', '|',
                     'undo', 'redo'
