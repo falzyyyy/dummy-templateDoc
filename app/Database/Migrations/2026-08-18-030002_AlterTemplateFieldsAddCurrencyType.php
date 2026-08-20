@@ -15,6 +15,14 @@ class AlterTemplateFieldsAddCurrencyType extends Migration
                 'default'    => 'text',
             ]
         ]);
+
+        $this->forge->addColumn('template_fields', [
+            'information' => [
+                'type'  => 'TEXT',
+                'null'  => true,
+                'after' => 'is_required'
+            ],
+        ]);
     }
 
     public function down()
@@ -26,5 +34,7 @@ class AlterTemplateFieldsAddCurrencyType extends Migration
                 'default'    => 'text',
             ]
         ]);
+
+        $this->forge->dropColumn('template_fields', 'information');
     }
 }
