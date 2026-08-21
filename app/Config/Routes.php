@@ -58,6 +58,7 @@ $routes->group('api/templates', ['filter' => ['admin:upload_template', 'scope']]
 // =============================================
 $routes->group('api/documents', ['filter' => ['jwt', 'scope']], function ($routes) {
     $routes->get('stats', 'Api\DocumentController::stats');               // Stats dashboard
+    $routes->post('auto-save', 'Api\DocumentController::autoSave');       // Auto save draft
     $routes->post('generate/(:segment)', 'Api\DocumentController::generate/$1'); // Generate
     $routes->get('/', 'Api\DocumentController::history');                  // Riwayat
     $routes->get('(:num)/revision-data', 'Api\DocumentController::getRevisionData/$1'); // Data revisi

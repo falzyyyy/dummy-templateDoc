@@ -6,7 +6,7 @@ use App\Controllers\BaseController;
 use App\Models\DocumentModel;
 use App\Models\TemplateModel;
 use App\Models\TemplateFieldModel;
-use App\Libraries\DocxGenerator;
+use App\Services\DocumentService;
 
 /**
  * DocumentController
@@ -22,15 +22,19 @@ use App\Libraries\DocxGenerator;
  */
 class DocumentController extends BaseController
 {
+    use ApiResponseTrait;
+
     protected DocumentModel $documentModel;
     protected TemplateModel $templateModel;
     protected TemplateFieldModel $fieldModel;
+    protected DocumentService $documentService;
 
     public function __construct()
     {
-        $this->documentModel = new DocumentModel();
-        $this->templateModel = new TemplateModel();
-        $this->fieldModel    = new TemplateFieldModel();
+        $this->documentModel   = new DocumentModel();
+        $this->templateModel   = new TemplateModel();
+        $this->fieldModel      = new TemplateFieldModel();
+        $this->documentService = new DocumentService();
     }
 
     /**
@@ -51,74 +55,74 @@ class DocumentController extends BaseController
         // 1. Cari template
         $template = $this->templateModel->getBySlug($slug);
         if (!$template) {
-            return $this->response->setStatusCode(404)
-                ->setJSON(['error' => 'Template tidak ditemukan.']);
+            return $this->respondNotFound('Template tidak ditemukan.');
         }
 
         // 2. Ambil fields
         $fields = $this->fieldModel->getByTemplate($template['id']);
         if (empty($fields)) {
-            return $this->response->setStatusCode(400)
-                ->setJSON(['error' => 'Template ini belum punya field/placeholder.']);
+            return $this->respondError('Template ini belum punya field/placeholder.', 400);
         }
 
         // 3. Ambil data dari request body
         $json = $this->request->getJSON(true);
-        $formData  = $json['data'] ?? [];
-        $format    = $json['format'] ?? 'docx';
-        $isPreview = $json['is_preview'] ?? false;
-        $parentDocId = $json['parent_document_id'] ?? null;
+        $formData     = $json['data'] ?? [];
+        $format       = $json['format'] ?? 'docx';
+        $isPreview    = $json['is_preview'] ?? false;
+        $parentDocId  = $json['parent_document_id'] ?? null;
+        $docIdFromReq = $json['document_id'] ?? null;
+        $userId       = $this->request->{'userId'};
 
-        // Validasi field required telah dihapus sesuai permintaan user
-        // 4. Generate dokumen Word / PDF
-        $templatePath = FCPATH . $template['file_path'];
-        $generator = new DocxGenerator();
+        // 4. Generate dokumen Word / PDF via Service
+        try {
+            $result = $this->documentService->generateDocument($template, $fields, $formData, $format, $isPreview, $parentDocId, $docIdFromReq, $userId);
+        } catch (\Throwable $e) {
+            return $this->respondError('Gagal generate dokumen: ' . $e->getMessage(), 500);
+        }
+
+        if ($result['is_preview']) {
+            return $this->respondSuccess([
+                'base64' => $result['base64']
+            ], 'Preview berhasil di-generate');
+        }
+
+        // 5. Return info dokumen + link download
+        return $this->respondSuccess([
+            'document' => [
+                'id'            => $result['document_id'],
+                'template_name' => $result['template_name'],
+                'download_url'  => base_url('api/documents/' . $result['document_id'] . '/download'),
+                'created_at'    => date('Y-m-d H:i:s'),
+            ]
+        ], 'Dokumen berhasil di-generate!', 201);
+    }
+
+    /**
+     * POST /api/documents/auto-save
+     * 
+     * Menyimpan draft dokumen secara real-time ke database.
+     * Mengembalikan ID dokumen agar update selanjutnya menggunakan ID yang sama.
+     */
+    public function autoSave()
+    {
+        $json = $this->request->getJSON(true);
+        $templateId  = $json['template_id'] ?? null;
+        $docId       = $json['document_id'] ?? null; // Null if first time save
+        $parentDocId = $json['parent_document_id'] ?? null;
+        $data        = $json['data'] ?? [];
+
+        if (!$templateId) {
+            return $this->respondError('Template ID diperlukan');
+        }
+
+        $userId = $this->request->{'userId'};
 
         try {
-            $outputPath = $generator->generate($templatePath, $formData, '', $format, $fields);
+            $savedDocId = $this->documentService->handleAutoSave($templateId, $data, $docId, $parentDocId, $userId);
+            return $this->respondSuccess(['document_id' => $savedDocId]);
         } catch (\Throwable $e) {
-            return $this->response->setStatusCode(500)
-                ->setJSON(['error' => 'Gagal generate dokumen: ' . $e->getMessage() . ' di baris ' . $e->getLine() . ' file ' . $e->getFile()]);
+            return $this->respondError('Gagal menyimpan draf: ' . $e->getMessage(), 500);
         }
-
-        // Jika ini hanya untuk preview, jangan simpan ke history, langsung return base64
-        if ($isPreview) {
-            $base64 = base64_encode(file_get_contents($outputPath));
-            unlink($outputPath); // Hapus file temporary
-            return $this->response->setJSON([
-                'message' => 'Preview berhasil di-generate',
-                'base64'  => $base64,
-            ]);
-        }
-
-        // 5. Simpan riwayat
-        $relativePath = str_replace(FCPATH, '', $outputPath);
-        
-        // AUTO-TAGGING berdasarkan identitas user pembuat dokumen
-        $userModel = new \App\Models\UserModel();
-        $currentUser = $userModel->find($this->request->{'userId'});
-
-        $docId = $this->documentModel->insert([
-            'template_id'        => $template['id'],
-            'user_id'            => $this->request->{'userId'},
-            'directorate_id'     => $currentUser ? $currentUser['directorate_id'] : null,
-            'division_id'        => $currentUser ? $currentUser['division_id'] : null,
-            'parent_document_id' => $parentDocId,
-            'data'               => json_encode($formData),
-            'file_path'          => $relativePath,
-        ]);
-
-        // 6. Return info dokumen + link download
-        return $this->response->setStatusCode(201)
-            ->setJSON([
-                'message'  => 'Dokumen berhasil di-generate!',
-                'document' => [
-                    'id'            => $docId,
-                    'template_name' => $template['name'],
-                    'download_url'  => base_url('api/documents/' . $docId . '/download'),
-                    'created_at'    => date('Y-m-d H:i:s'),
-                ],
-            ]);
     }
 
     /**
@@ -206,6 +210,7 @@ class DocumentController extends BaseController
         $search    = $this->request->getGet('search');
         $startDate = $this->request->getGet('start_date');
         $endDate   = $this->request->getGet('end_date');
+        $templateId = $this->request->getGet('template_id');
 
         $documents = $this->documentModel->getHistory(
             $directorateId, 
@@ -214,7 +219,8 @@ class DocumentController extends BaseController
             $scope, 
             $search, 
             $startDate, 
-            $endDate
+            $endDate,
+            $templateId !== '' ? (int)$templateId : null
         );
 
         return $this->response->setJSON(['documents' => $documents]);
@@ -292,9 +298,11 @@ class DocumentController extends BaseController
         }
 
         // Hapus file
-        $filePath = FCPATH . $document['file_path'];
-        if (file_exists($filePath)) {
-            unlink($filePath);
+        if (!empty($document['file_path'])) {
+            $filePath = FCPATH . ltrim($document['file_path'], '/');
+            if (file_exists($filePath) && is_file($filePath)) {
+                @unlink($filePath);
+            }
         }
 
         $this->documentModel->delete($id);
@@ -333,10 +341,12 @@ class DocumentController extends BaseController
             $idsToDelete[] = $doc['id'];
             
             // Hapus file fisik
-            $filePath = FCPATH . ltrim($doc['file_path'], '/');
-            if (file_exists($filePath)) {
-                @unlink($filePath);
-                $deletedFilesCount++;
+            if (!empty($doc['file_path'])) {
+                $filePath = FCPATH . ltrim($doc['file_path'], '/');
+                if (file_exists($filePath) && is_file($filePath)) {
+                    @unlink($filePath);
+                    $deletedFilesCount++;
+                }
             }
         }
 

@@ -155,14 +155,101 @@ class DocxGenerator
                 $xpath = new \DOMXPath($dom);
 
                 // --- A. PARSE NESTED LISTS ---
-                $processList = function($node, $level = 0, $listType = 'ul') use (&$processList) {
+                // Helper roman numeral
+                $intToRoman = function($num) {
+                    $n = intval($num);
+                    $res = '';
+                    $roman_numerals = array(
+                        'M'  => 1000, 'CM' => 900, 'D'  => 500, 'CD' => 400,
+                        'C'  => 100,  'XC' => 90,  'L'  => 50,  'XL' => 40,
+                        'X'  => 10,   'IX' => 9,   'V'  => 5,   'IV' => 4,
+                        'I'  => 1
+                    );
+                    foreach ($roman_numerals as $roman => $number) {
+                        $matches = intval($n / $number);
+                        $res .= str_repeat($roman, $matches);
+                        $n = $n % $number;
+                    }
+                    return $res;
+                };
+
+                $processList = function($node, $level = 0, $listType = 'ul') use (&$processList, $intToRoman) {
                     $result = '';
                     $counter = 1;
+                    
+                    // Ambil list-style-type dari atribut style ATAU atribut type pada <ul> / <ol>
+                    $styleType = 'decimal';
+                    if ($listType === 'ul') $styleType = 'disc';
+                    
+                    if ($node->hasAttribute('style')) {
+                        $styleStr = $node->getAttribute('style');
+                        if (preg_match('/list-style-type\s*:\s*([^;"]+)/i', $styleStr, $matches)) {
+                            $styleType = trim(strtolower($matches[1]));
+                        }
+                    }
+                    
+                    // Fallback ke atribut type="a", type="I", type="1" jika styleType masih default
+                    if (($styleType === 'decimal' || $styleType === 'disc') && $node->hasAttribute('type')) {
+                        $typeAttr = trim($node->getAttribute('type'));
+                        if ($typeAttr === 'a') $styleType = 'lower-alpha';
+                        elseif ($typeAttr === 'A') $styleType = 'upper-alpha';
+                        elseif ($typeAttr === 'i') $styleType = 'lower-roman';
+                        elseif ($typeAttr === 'I') $styleType = 'upper-roman';
+                        elseif ($typeAttr === '1') $styleType = 'decimal';
+                        elseif ($typeAttr === 'circle') $styleType = 'circle';
+                        elseif ($typeAttr === 'square') $styleType = 'square';
+                    }
+
+                    // Fallback ke atribut class jika CKEditor mengeluarkan class (ck-list-style-type-...)
+                    if (($styleType === 'decimal' || $styleType === 'disc') && $node->hasAttribute('class')) {
+                        $classAttr = trim($node->getAttribute('class'));
+                        if (str_contains($classAttr, 'lower-alpha') || str_contains($classAttr, 'lower-latin')) $styleType = 'lower-alpha';
+                        elseif (str_contains($classAttr, 'upper-alpha') || str_contains($classAttr, 'upper-latin')) $styleType = 'upper-alpha';
+                        elseif (str_contains($classAttr, 'lower-roman')) $styleType = 'lower-roman';
+                        elseif (str_contains($classAttr, 'upper-roman')) $styleType = 'upper-roman';
+                        elseif (str_contains($classAttr, 'decimal-leading-zero')) $styleType = 'decimal-leading-zero';
+                        elseif (str_contains($classAttr, 'circle')) $styleType = 'circle';
+                        elseif (str_contains($classAttr, 'square')) $styleType = 'square';
+                    }
+
                     foreach ($node->childNodes as $child) {
                         if ($child->nodeName === 'li') {
-                            $prefix = ($listType === 'ol') ? ($counter++ . '.') : '&#8226;';
-                            // Indentasi standar = 24pt untuk level 0, ditambah 24pt tiap level masuk
-                            $indent = 24 + ($level * 24);
+                            // Tentukan Prefix berdasarkan tipe
+                            $prefix = '&#8226;'; 
+                            if ($listType === 'ol') {
+                                switch ($styleType) {
+                                    case 'lower-alpha':
+                                    case 'lower-latin':
+                                        $prefix = chr(96 + (($counter - 1) % 26 + 1)) . '.';
+                                        break;
+                                    case 'upper-alpha':
+                                    case 'upper-latin':
+                                        $prefix = chr(64 + (($counter - 1) % 26 + 1)) . '.';
+                                        break;
+                                    case 'lower-roman':
+                                        $prefix = strtolower($intToRoman($counter)) . '.';
+                                        break;
+                                    case 'upper-roman':
+                                        $prefix = $intToRoman($counter) . '.';
+                                        break;
+                                    case 'decimal-leading-zero':
+                                        $prefix = str_pad($counter, 2, '0', STR_PAD_LEFT) . '.';
+                                        break;
+                                    default:
+                                        $prefix = $counter . '.';
+                                        break;
+                                }
+                                $counter++;
+                            } else {
+                                switch ($styleType) {
+                                    case 'circle': $prefix = 'o'; break;
+                                    case 'square': $prefix = '&#9642;'; break;
+                                    default: $prefix = '&#8226;'; break; // disc
+                                }
+                            }
+                            
+                            // Styling Poin 4: Hanging indent dinamis berdasarkan lebar prefix
+                            $indent = 36 + ($level * 36);
                             
                             $liContent = '';
                             $subLists = '';
@@ -193,7 +280,13 @@ class DocxGenerator
                             }
                             
                             if (!empty($liContent) || !empty($prefix)) {
-                                $result .= '<p style="' . $alignStyle . 'margin-bottom: 0px; margin-left: ' . $indent . 'pt; text-indent: -12pt;">' . $prefix . '&#160;' . $liContent . '</p>';
+                                // Hitung hanging indent berdasarkan lebar prefix secara dinamis
+                                // Rata-rata karakter di font 11-12pt = ~6pt. Spasi = ~3pt. Tambahan 2 spasi (~6pt).
+                                $prefixWidthPt = (mb_strlen($prefix) * 6) + 6; // lebar prefix + 2 spasi
+                                $hangPt = $prefixWidthPt;
+                                
+                                $marker = '<span style="font-size: 1pt; color: #FFFFFF;">[HANG:' . $indent . ':' . $hangPt . ']</span>';
+                                $result .= '<p style="' . $alignStyle . 'margin-bottom: 0px; margin-left: ' . $indent . 'pt; text-indent: -' . $hangPt . 'pt;">' . $marker . $prefix . '&#160;&#160;' . $liContent . '</p>';
                             }
                             $result .= $subLists;
                         }
@@ -415,6 +508,34 @@ class DocxGenerator
                         }
                     }
                 }
+
+                // =============================================================
+                // EKSTRAK HANGING INDENT (POIN 4)
+                // =============================================================
+                $xmlString = preg_replace_callback('/<w:p\b[^>]*>.*?<\/w:p>/s', function($m) {
+                    $pXml = $m[0];
+                    if (preg_match('/<w:t[^>]*>\[HANG:(\d+):(\d+)\]<\/w:t>/', $pXml, $hangMatch)) {
+                        $left = (int)$hangMatch[1] * 20; // pt to twips
+                        $hanging = (int)$hangMatch[2] * 20;
+                        $indXml = '<w:ind w:left="' . $left . '" w:hanging="' . $hanging . '"/>';
+
+                        // Update or insert <w:ind>
+                        if (strpos($pXml, '<w:pPr>') !== false) {
+                            if (strpos($pXml, '<w:ind ') !== false) {
+                                $pXml = preg_replace('/<w:ind\b[^>]*\/>/', $indXml, $pXml);
+                            } else {
+                                $pXml = preg_replace('/<w:pPr>/', '<w:pPr>' . $indXml, $pXml);
+                            }
+                        } else {
+                            $pXml = preg_replace('/<w:p\b[^>]*>/', '$0<w:pPr>' . $indXml . '</w:pPr>', $pXml);
+                        }
+
+                        // Hapus marker node dari XML
+                        $pXml = preg_replace('/<w:r\b[^>]*>\s*<w:rPr>.*?<\/w:rPr>\s*<w:t[^>]*>\[HANG:\d+:\d+\]<\/w:t>\s*<\/w:r>/s', '', $pXml);
+                        $pXml = preg_replace('/<w:t[^>]*>\[HANG:\d+:\d+\]<\/w:t>/s', '', $pXml);
+                    }
+                    return $pXml;
+                }, $xmlString);
 
                 // Injeksi menggunakan nilai yang ditangkap (bukan hardcode lagi)
                 $xmlString = $this->injectTableBorders($xmlString, $borderSz, $borderColor);

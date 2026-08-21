@@ -19,7 +19,7 @@ class TemplateSeeder extends Seeder
                 'updated_at' => $now,
             ]
         ];
-        $this->db->table('template_categories')->insertBatch($templateCategories);
+        $this->db->table('template_categories')->ignore(true)->insertBatch($templateCategories);
 
         // 2. Seed Templates
         $templateData = [
@@ -84,7 +84,7 @@ class TemplateSeeder extends Seeder
                 'updated_at'     => $now,
             ]
         ];
-        $this->db->table('templates')->insertBatch($templateData);
+        $this->db->table('templates')->ignore(true)->insertBatch($templateData);
 
         // 3. Seed Template Fields
         $templateFieldsData = [
@@ -677,7 +677,7 @@ class TemplateSeeder extends Seeder
             ],
 
         ];
-        $this->db->table('template_fields')->insertBatch($templateFieldsData);
+        $this->db->table('template_fields')->ignore(true)->insertBatch($templateFieldsData);
 
         echo "Seeder berhasil dijalankan!\n";
     }

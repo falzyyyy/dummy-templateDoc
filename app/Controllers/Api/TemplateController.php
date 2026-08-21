@@ -40,10 +40,33 @@ class TemplateController extends BaseController
     public function index()
     {
         // Gunakan variable yang diinject oleh ScopeToDirectorateFilter
-        $directorateId = $_SERVER['SCOPED_DIRECTORATE_ID'] ?? null;
-        $divisionId    = $_SERVER['SCOPED_DIVISION_ID'] ?? null;
+        $scopeDirectorateId = $_SERVER['SCOPED_DIRECTORATE_ID'] ?? null;
+        $scopeDivisionId    = $_SERVER['SCOPED_DIVISION_ID'] ?? null;
 
-        $templates = $this->templateModel->getActiveTemplates($directorateId, $divisionId);
+        $search   = $this->request->getGet('search');
+        $sortBy   = $this->request->getGet('sort_by') ?? 'templates.created_at';
+        $sortDir  = $this->request->getGet('sort_dir') ?? 'DESC';
+        $filterDir = $this->request->getGet('directorate_id');
+        $filterDiv = $this->request->getGet('division_id');
+
+        $filterDirectorateId = $filterDir === '' ? null : $filterDir;
+        $filterDivisionId    = $filterDiv === '' ? null : $filterDiv;
+
+        $allowedSorts = ['templates.name', 'templates.created_at'];
+        if (!in_array($sortBy, $allowedSorts)) {
+            $sortBy = 'templates.created_at';
+        }
+        $sortDir = strtoupper($sortDir) === 'ASC' ? 'ASC' : 'DESC';
+
+        $templates = $this->templateModel->getActiveTemplates(
+            $scopeDirectorateId, 
+            $scopeDivisionId, 
+            $search, 
+            $sortBy, 
+            $sortDir,
+            $filterDirectorateId,
+            $filterDivisionId
+        );
 
         // Tambahkan jumlah field ke setiap template
         foreach ($templates as &$template) {

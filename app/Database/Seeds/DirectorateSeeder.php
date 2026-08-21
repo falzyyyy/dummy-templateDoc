@@ -42,8 +42,8 @@ class DirectorateSeeder extends Seeder
 
             $directorateModel->insert([
                 'name'           => $directorate['name'],
-                'created_at'     => now(),
-                'updated_at'     => now(),
+                'created_at'     => date('Y-m-d H:i:s'),
+                'updated_at'     => date('Y-m-d H:i:s'),
             ]);
         }
 

@@ -30,14 +30,36 @@ class UserController extends BaseController
      */
     public function index()
     {
+        $search   = $this->request->getGet('search');
+        $sortBy   = $this->request->getGet('sort_by') ?? 'users.created_at';
+        $sortDir  = $this->request->getGet('sort_dir') ?? 'DESC';
+        $role     = $this->request->getGet('role');
+
         $query = $this->userModel
             ->select('users.id, users.name, users.email, users.role, users.is_active, users.created_at, users.directorate_id, users.division_id, users.permissions, directorates.name as directorate_name, divisions.name as division_name')
             ->join('directorates', 'directorates.id = users.directorate_id', 'left')
-            ->join('divisions', 'divisions.id = users.division_id', 'left')
-            ->orderBy('users.created_at', 'DESC');
+            ->join('divisions', 'divisions.id = users.division_id', 'left');
+
+        if (!empty($search)) {
+            $query->groupStart()
+                  ->like('users.name', $search)
+                  ->orLike('users.email', $search)
+                  ->groupEnd();
+        }
+
+        if (!empty($role)) {
+            $query->where('users.role', $role);
+        }
 
         if (isset($_SERVER['SCOPED_DIRECTORATE_ID'])) {
             $query->where('users.directorate_id', $_SERVER['SCOPED_DIRECTORATE_ID']);
+        }
+
+        $allowedSorts = ['users.name', 'users.email', 'users.role', 'users.is_active', 'directorate_name', 'users.created_at'];
+        if (in_array($sortBy, $allowedSorts)) {
+            $query->orderBy($sortBy, strtoupper($sortDir) === 'ASC' ? 'ASC' : 'DESC');
+        } else {
+            $query->orderBy('users.created_at', 'DESC');
         }
 
         $users = $query->findAll();

@@ -23,7 +23,18 @@ class AddParentDocumentIdToDocuments extends Migration
 
     public function down()
     {
-        $this->forge->dropForeignKey('documents', 'documents_parent_document_id_foreign');
+        $db = \Config\Database::connect();
+        
+        // Cek apakah foreign key ada sebelum dihapus
+        $query = $db->query("SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE 
+                             WHERE TABLE_NAME = 'documents' 
+                             AND CONSTRAINT_NAME = 'documents_parent_document_id_foreign' 
+                             AND TABLE_SCHEMA = DATABASE()");
+        
+        if ($query->getNumRows() > 0) {
+            $this->forge->dropForeignKey('documents', 'documents_parent_document_id_foreign');
+        }
+        
         $this->forge->dropColumn('documents', 'parent_document_id');
     }
 }

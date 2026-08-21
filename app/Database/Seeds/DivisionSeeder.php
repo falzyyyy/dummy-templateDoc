@@ -54,8 +54,8 @@ class DivisionSeeder extends Seeder
             $divisionModel->insert([
                 'directorate_id'    => $division['directorate_id'],
                 'name'              => $division['name'],
-                'created_at'        => $division['email'],
-                'updated_at'        => 'admin123', 
+                'created_at'        => date('Y-m-d H:i:s'),
+                'updated_at'        => date('Y-m-d H:i:s'), 
             ]);
         }
 

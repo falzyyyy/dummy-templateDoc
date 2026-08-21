@@ -15,6 +15,12 @@ export default function UserManagement() {
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, id: null });
+  
+  // DataTable States
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterRole, setFilterRole] = useState('');
+  const [sortBy, setSortBy] = useState('users.created_at');
+  const [sortDir, setSortDir] = useState('DESC');
 
   const AVAILABLE_PERMISSIONS = [
     { id: 'upload_template', label: 'Upload & Konfigurasi Template' },
@@ -27,7 +33,9 @@ export default function UserManagement() {
   const fetchData = async () => {
     try {
       const [uRes, dRes, divRes] = await Promise.all([
-        api.get('/users'),
+        api.get('/users', {
+          params: { search: searchTerm, role: filterRole, sort_by: sortBy, sort_dir: sortDir }
+        }),
         api.get('/directorates'),
         api.get('/divisions')
       ]);
@@ -41,7 +49,12 @@ export default function UserManagement() {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { 
+    const timer = setTimeout(() => {
+      fetchData();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm, filterRole, sortBy, sortDir]);
 
   const resetForm = () => { 
     setForm({ 
@@ -225,16 +238,57 @@ export default function UserManagement() {
         </div>
       )}
 
+      {/* Search & Filter Controls */}
+      <div className="flex flex-col sm:flex-row gap-4 mb-4">
+        <input 
+          type="text" 
+          placeholder="Cari nama atau email..." 
+          className="input-field max-w-sm"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+        <select 
+          className="input-field max-w-xs"
+          value={filterRole}
+          onChange={(e) => setFilterRole(e.target.value)}
+        >
+          <option value="">Semua Role</option>
+          <option value="superadmin">Super Admin</option>
+          <option value="admin">Admin</option>
+          <option value="user">User</option>
+        </select>
+      </div>
+
       {/* Users Table */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 uppercase tracking-wider text-[11px]">
               <tr>
-                <th className="px-6 py-4">Nama Lengkap</th>
-                <th className="px-6 py-4">Penempatan</th>
-                <th className="px-6 py-4">Hak Akses</th>
-                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100" onClick={() => {
+                  if (sortBy === 'users.name') setSortDir(sortDir === 'ASC' ? 'DESC' : 'ASC');
+                  else { setSortBy('users.name'); setSortDir('ASC'); }
+                }}>
+                  Nama Lengkap {sortBy === 'users.name' ? (sortDir === 'ASC' ? '↑' : '↓') : '↕'}
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100" onClick={() => {
+                  if (sortBy === 'directorate_name') setSortDir(sortDir === 'ASC' ? 'DESC' : 'ASC');
+                  else { setSortBy('directorate_name'); setSortDir('ASC'); }
+                }}>
+                  Penempatan {sortBy === 'directorate_name' ? (sortDir === 'ASC' ? '↑' : '↓') : '↕'}
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100" onClick={() => {
+                  if (sortBy === 'users.role') setSortDir(sortDir === 'ASC' ? 'DESC' : 'ASC');
+                  else { setSortBy('users.role'); setSortDir('ASC'); }
+                }}>
+                  Hak Akses {sortBy === 'users.role' ? (sortDir === 'ASC' ? '↑' : '↓') : '↕'}
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-slate-100" onClick={() => {
+                  if (sortBy === 'users.is_active') setSortDir(sortDir === 'ASC' ? 'DESC' : 'ASC');
+                  else { setSortBy('users.is_active'); setSortDir('ASC'); }
+                }}>
+                  Status {sortBy === 'users.is_active' ? (sortDir === 'ASC' ? '↑' : '↓') : '↕'}
+                </th>
                 <th className="px-6 py-4 text-right">Aksi</th>
               </tr>
             </thead>

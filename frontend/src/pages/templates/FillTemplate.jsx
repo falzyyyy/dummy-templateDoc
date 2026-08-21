@@ -44,11 +44,9 @@ export default function FillTemplate() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const revisiDariId = searchParams.get('revisi_dari');
+  const draftIdParam = searchParams.get('draft_id');
+  const sourceDocId = revisiDariId || draftIdParam;
   
-  const draftKey = revisiDariId 
-    ? `docgen_draft_rev_${revisiDariId}` 
-    : `docgen_draft_tpl_${slug}`;
-
   const { showAlert } = useAlert();
   const [template, setTemplate] = useState(null);
   const [fields, setFields] = useState([]);
@@ -63,11 +61,15 @@ export default function FillTemplate() {
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
   const [hasPreview, setHasPreview] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(!!draftIdParam);
+  const [draftDocumentId, setDraftDocumentId] = useState(draftIdParam || null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false); // Penanda apakah user sudah mengubah isian
 
   useEffect(() => {
     setIsInitialized(false);
-    setHasRestoredDraft(false);
+    setHasRestoredDraft(!!draftIdParam);
+    setIsDirty(false); // Reset saat pertama load
 
     api.get(`/templates/${slug}`).then(async res => {
       const t = res.data.template;
@@ -76,59 +78,60 @@ export default function FillTemplate() {
       const initial = {};
       (t.fields || []).forEach(f => { initial[f.field_key] = f.default_value || ''; });
       
-      if (revisiDariId) {
+      if (sourceDocId) {
         try {
-          const revRes = await api.get(`/documents/${revisiDariId}/revision-data`);
+          const revRes = await api.get(`/documents/${sourceDocId}/revision-data`);
           if (revRes.data && revRes.data.data) {
-            setRevisionInfo(revRes.data);
+            if (revisiDariId) setRevisionInfo(revRes.data);
             Object.assign(initial, revRes.data.data);
           }
         } catch (err) {
-          console.error('Gagal memuat data revisi:', err);
-          showAlert('warning', 'Perhatian', 'Gagal memuat data revisi lama.');
+          console.error('Gagal memuat data sumber:', err);
+          showAlert('warning', 'Perhatian', 'Gagal memuat data dokumen sebelumnya.');
         }
-      }
-
-      // Cek draft tersimpan di localStorage
-      try {
-        const savedDraft = localStorage.getItem(draftKey);
-        if (savedDraft) {
-          const parsedDraft = JSON.parse(savedDraft);
-          if (parsedDraft && typeof parsedDraft === 'object') {
-            Object.assign(initial, parsedDraft);
-            setHasRestoredDraft(true);
-          }
-        }
-      } catch (e) {
-        console.error('Error loading draft from localStorage:', e);
       }
 
       setFormData(initial);
       setIsInitialized(true);
+      // setIsDirty(false) dipastikan lagi agar tidak tersave dari awal
+      setIsDirty(false); 
     }).catch(console.error).finally(() => setLoading(false));
-  }, [slug, revisiDariId, draftKey]);
+  }, [slug, sourceDocId, revisiDariId, draftIdParam]);
 
-  // Auto-save draft ke localStorage setiap kali formData berubah
+  // Auto-save draft ke Database via API dengan debounce 1.5 detik
   useEffect(() => {
-    if (!isInitialized) return;
-    try {
-      // Jika ada setidaknya 1 isi field, simpan. Jika kosong semua, hapus draf.
-      const hasContent = Object.values(formData).some(val => val !== '' && val !== null && val !== undefined);
-      if (hasContent) {
-        localStorage.setItem(draftKey, JSON.stringify(formData));
-      } else {
-        localStorage.removeItem(draftKey);
+    if (!isInitialized || !template) return;
+    
+    // KUNCI: Jangan pernah auto-save kalau tidak ada sentuhan dari user
+    if (!isDirty) return;
+    
+    // Jangan auto-save jika data kosong semua
+    const hasContent = Object.values(formData).some(val => val !== '' && val !== null && val !== undefined);
+    if (!hasContent) return;
+
+    const timer = setTimeout(async () => {
+      setIsSaving(true);
+      try {
+        const res = await api.post('/documents/auto-save', {
+          template_id: template.id,
+          document_id: draftDocumentId,
+          parent_document_id: revisiDariId ? parseInt(revisiDariId, 10) : null,
+          data: formData
+        });
+        if (res.data.document_id) {
+          setDraftDocumentId(res.data.document_id);
+        }
+      } catch (err) {
+        console.error('Auto-save gagal:', err);
+      } finally {
+        setIsSaving(false);
       }
-    } catch (e) {
-      console.error('Gagal menyimpan draf ke localStorage:', e);
-    }
-  }, [formData, draftKey, isInitialized]);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [formData, isInitialized, template, draftDocumentId, revisiDariId, isDirty]);
 
   const handleResetForm = () => {
-    try {
-      localStorage.removeItem(draftKey);
-    } catch (e) {}
-    
     // Kosongkan seluruh isian field menjadi string kosong
     const emptyData = {};
     fields.forEach(f => {
@@ -137,12 +140,13 @@ export default function FillTemplate() {
 
     setFormData(emptyData);
     setHasRestoredDraft(false);
-    showAlert('info', 'Formulir Dikosongkan', 'Seluruh isi formulir dan draf telah dikosongkan.');
+    setIsDirty(true); // User sengaja reset form, ini hitungannya "perubahan", jadi draf akan disimpan kosong
+    showAlert('info', 'Formulir Dikosongkan', 'Seluruh isi formulir telah dikosongkan.');
   };
 
   const handleMuatPreview = async () => {
     setPreviewLoading(true);
-    setErrors({}); // reset errors if any
+    setErrors({});
 
     try {
       const res = await api.post(`/documents/generate/${slug}`, { 
@@ -152,7 +156,6 @@ export default function FillTemplate() {
       });
       
       if (res.data.base64) {
-        // Convert base64 to Blob
         const byteCharacters = atob(res.data.base64);
         const byteNumbers = new Array(byteCharacters.length);
         for (let i = 0; i < byteCharacters.length; i++) {
@@ -161,7 +164,6 @@ export default function FillTemplate() {
         const byteArray = new Uint8Array(byteNumbers);
         const blob = new Blob([byteArray], { type: 'application/pdf' });
         
-        // Revoke old URL if exists to prevent memory leak
         if (pdfPreviewUrl) {
            URL.revokeObjectURL(pdfPreviewUrl);
         }
@@ -190,9 +192,9 @@ export default function FillTemplate() {
 
   const handleChange = (key, value) => {
     setFormData(prev => ({ ...prev, [key]: value }));
+    setIsDirty(true); // Tandai bahwa user sudah menyentuh / merubah isian
     if (errors[key]) setErrors(prev => { const n = { ...prev }; delete n[key]; return n; });
   };
-
 
   const handleGenerate = async (format = 'docx') => {
     setGenerating(format); setErrors({}); setSuccess(null);
@@ -200,14 +202,9 @@ export default function FillTemplate() {
       const res = await api.post(`/documents/generate/${slug}`, { 
         data: formData, 
         format,
+        document_id: draftDocumentId, // Kirim ID draft agar diupdate
         parent_document_id: revisiDariId ? parseInt(revisiDariId, 10) : null
       });
-
-      // Clear draft upon successful generation
-      try {
-        localStorage.removeItem(draftKey);
-        setHasRestoredDraft(false);
-      } catch (e) {}
 
       setSuccess(res.data);
       // Auto download
@@ -342,11 +339,6 @@ export default function FillTemplate() {
                                 'margin-left': true,
                                 'margin-bottom': true
                             }
-                        },
-                        {
-                          name: /^(ol|ul|li)$/,
-                          attributes: true, // Mengizinkan atribut type="a", type="I", type="1"
-                          styles: true      // Mengizinkan style="list-style-type: lower-roman;", dll.
                         }
                     ]
                 },
@@ -489,11 +481,32 @@ export default function FillTemplate() {
         {/* Form Input */}
         <div className="space-y-6">
           <div className="card p-5 bg-slate-50 flex items-start gap-4">
-            <div className="w-12 h-12 bg-white rounded-xl shadow-sm border border-slate-200 flex items-center justify-center text-2xl flex-shrink-0">📝</div>
-            <div>
-              <p className="text-sm font-semibold text-slate-800">{fields.filter(f => f.is_auto_generated != 1).length} informasi diperlukan</p>
+            <div className="w-12 h-12 bg-white rounded-xl shadow-sm border border-slate-200 flex items-center justify-center text-2xl flex-shrink-0 relative">
+              📝
+              {isSaving && (
+                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                </span>
+              )}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-800">{fields.filter(f => f.is_auto_generated != 1).length} informasi diperlukan</p>
+                {isSaving ? (
+                  <span className="text-xs font-medium text-blue-600 flex items-center gap-1.5 animate-pulse">
+                    <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    Menyimpan draf...
+                  </span>
+                ) : draftDocumentId ? (
+                  <span className="text-xs font-medium text-green-600 flex items-center gap-1">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
+                    Draf tersimpan
+                  </span>
+                ) : null}
+              </div>
               <p className="text-sm text-slate-500 mt-1 leading-relaxed">
-                Data yang dimasukkan akan langsung tampil di panel Live Preview sebelah kanan.
+                Data yang dimasukkan akan langsung tersimpan otomatis sebagai draft.
               </p>
             </div>
           </div>

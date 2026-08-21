@@ -40,8 +40,8 @@ class CategorySeeder extends Seeder
             $categoryModel->insert([
                 'directorate_id'    => $category['directorate_id'],
                 'name'              => $category['name'],
-                'created_at'        => now(),
-                'updated_at'        => now(),
+                'created_at'        => date('Y-m-d H:i:s'),
+                'updated_at'        => date('Y-m-d H:i:s'),
             ]);
         }
 
