@@ -326,6 +326,17 @@ export default function FillTemplate() {
                     ImageToolbar, ImageCaption, ImageStyle, ImageResize, 
                     Base64UploadAdapter, PasteFromOffice, SelectAll, GeneralHtmlSupport
                 ],
+                fontFamily: {
+                  options: [
+                    'default', // Pilihan default
+                    'Arial, Helvetica, sans-serif',
+                    'Courier New, Courier, monospace',
+                    'Georgia, serif',
+                    'Times New Roman, Times, serif',
+                    'Verdana, Geneva, sans-serif'
+                  ],
+                  supportAllValues: true
+                },
                 list: {
                     properties: {
                       styles: true,      // Mengaktifkan pilihan: decimal-leading-zero, lower-alpha, upper-roman, dll.
@@ -338,6 +349,8 @@ export default function FillTemplate() {
                         {
                             name: /^(p|h1|h2|h3|h4|div|span|td|th)$/,
                             styles: {
+                                'font-family': true,
+                                'font-size': true,
                                 'line-height': true,
                                 'margin-left': true,
                                 'margin-bottom': true
